@@ -19,19 +19,42 @@ runtime dependencies; the server does not clone the repository, build an image, 
 Python packages.
 
 ```sh
-# 1. Install Docker Engine and Python 3 first: https://docs.docker.com/engine/install/
-# 2. Download these two assets from release v0.2.0, then verify and run:
-sha256sum -c algosec-jira-bus-0.2.0-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.2.0-docker-amd64.run
+# 1. Download these two assets from release v0.2.1, then verify and run:
+sha256sum -c algosec-jira-bus-0.2.1-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run
 
-# 3. After the wizard, inspect the service:
+# 2. After the wizard, inspect the service:
 sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
 ```
 
-Download: [GitHub Release v0.2.0](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.0).
+On a clean Ubuntu/Debian or RHEL/Rocky/AlmaLinux/CentOS host, the verified `.run` installer
+installs Python 3 and Docker Engine from the OS and official Docker repositories when they are
+missing. Its default wizard asks for the Jira URL, API email/token, FireFlow FQDN, API account,
+template, devices, and optional private CA before it runs the connectivity doctor.
+
+Download: [GitHub Release v0.2.1](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.1).
 The wizard validates both API connections and keeps `apply: false` unless the operator enters
 `START`.
+
+For an unattended production install, prepare owner-only files on the Linux server and pass
+them to the same installer. No ChatGPT, agent, MCP service, repository checkout, compiler, or
+package download is used:
+
+```sh
+sudo install -d -m 0700 /root/jira-fireflow-deploy
+sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run \
+  --config-file /root/jira-fireflow-deploy/bus.json \
+  --secrets-file /root/jira-fireflow-deploy/secrets.json
+```
+
+`secrets.json` contains exactly `JIRA_API_TOKEN` and `ASMS_API_PASSWORD`. If FireFlow uses a
+private CA, stage its PEM file with mode `0600` and add
+`--ca-file /root/jira-fireflow-deploy/fireflow-ca.pem`. Use a FireFlow FQDN present in the
+certificate SAN; the installer keeps CA, hostname, and optional certificate-pin verification
+enabled. It runs the new configuration doctor before stopping an existing container and restores
+the prior deployment if the replacement cannot start.
 
 The adjacent `.sha256` file checks download integrity. Release reviewers can additionally use
 `SHA256SUMS`, `RELEASE-MANIFEST.json`, and the SPDX SBOM published with the release. The manifest
@@ -78,15 +101,15 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.2.0-linux.run
+  --output dist/algosec-jira-bus-0.2.1-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.2.0-linux.run \
+  dist/algosec-jira-bus-0.2.1-linux.run \
   dist/algosec-jira-bus-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
   --image dist/algosec-jira-bus-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.2.0-docker-amd64.run
+  --output dist/algosec-jira-bus-0.2.1-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.2.0 --image algosec-jira-bus:0.2.0
+  --directory dist --version 0.2.1 --image algosec-jira-bus:0.2.1
 ```
 
 The bus submits and tracks a change request. Approval, planning, implementation, and policy

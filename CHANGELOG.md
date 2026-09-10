@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+- Added unattended Docker installation from private `bus.json` and `secrets.json` files.
+- Added optional private-CA staging while preserving hostname validation and certificate pinning.
+- Run the new configuration doctor before stopping the existing container.
+- Atomically replace container configuration and restore the previous deployment if startup fails.
+- Added SELinux relabeling support for enforcing Rocky and RHEL hosts.
+
 ## 0.2.0
 
 - Published a clean source snapshot without private operational history or deployment data.

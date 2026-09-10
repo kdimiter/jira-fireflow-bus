@@ -295,10 +295,12 @@ def _git_blob_digest(root, revision, name):
 def _verify_docker_installer(root, path, revision, image_digest):
     image_name = 'algosec-jira-bus-docker-amd64.tar.gz'
     checksum_name = image_name + '.sha256'
+    stager_name = 'stage-config.py'
     files, captured = _self_extractor_files(
         path, DOCKER_INSTALLER_MARKER, 'build-docker-installer.py',
-        {'MANIFEST.json', checksum_name, 'install-docker.sh'})
-    expected_names = {image_name, checksum_name, 'install-docker.sh', 'MANIFEST.json'}
+        {'MANIFEST.json', checksum_name, 'install-docker.sh', stager_name})
+    expected_names = {
+        image_name, checksum_name, 'install-docker.sh', stager_name, 'MANIFEST.json'}
     if set(files) != expected_names or 'MANIFEST.json' not in captured:
         raise ValueError('Docker installer file inventory does not match release')
     manifest = _json_document(captured['MANIFEST.json'], 'Docker installer MANIFEST.json')
@@ -320,6 +322,10 @@ def _verify_docker_installer(root, path, revision, image_digest):
         root, revision, 'packaging/docker/install-docker.sh')
     if files['install-docker.sh']['sha256'] != helper_digest:
         raise ValueError('Docker installer helper does not match release Git tree')
+    stager_digest = _git_blob_digest(
+        root, revision, 'packaging/docker/stage-config.py')
+    if files[stager_name]['sha256'] != stager_digest:
+        raise ValueError('Docker installer stager does not match release Git tree')
 
 
 def _json_document(content, description):
