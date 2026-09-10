@@ -88,3 +88,17 @@ class WizardProvisionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'not trusted'):
                 self.wizard.collect_fireflow_credentials()
             secret.assert_not_called()
+
+
+class ProvisionCliTests(unittest.TestCase):
+    def test_password_mismatch_stops_before_network(self):
+        from unittest.mock import patch
+        from algosec_jira_bus import provision
+        with patch('builtins.input', side_effect=[
+                'admin', 'jira_bus_api_137', 'bot137@example.test']), \
+             patch.object(provision.getpass, 'getpass', side_effect=[
+                 'admin-secret', 'first-password', 'second-password']), \
+             patch.object(provision, 'create_asms_user') as create:
+            self.assertEqual(provision.main([
+                '--base-url', 'https://asms.example.test', '--apply']), 2)
+            create.assert_not_called()

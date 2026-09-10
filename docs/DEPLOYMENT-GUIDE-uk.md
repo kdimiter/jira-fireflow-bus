@@ -50,7 +50,8 @@ sh scripts/setup-forge.sh
 
 Для нового середовища `prepare-fireflow.sh` через HTTPS API створює `jira_bus_api` з правами,
 перевіреними в пілоті: ASMS Admin, FireFlow Admin і `ALL_FIREWALLS → Standard`. Він приховано
-питає credentials чинного ASMS administrator, генерує робочий пароль і показує його один раз.
+питає credentials чинного ASMS administrator і двічі — новий унікальний пароль інтеграції.
+Згенеруйте пароль у password manager: helper не показує та не записує його у журнали.
 SSH або локальний запуск на AlgoSec не потрібні.
 
 ## 2. Docker: найпростіше встановлення

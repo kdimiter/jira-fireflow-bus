@@ -2,7 +2,6 @@
 import getpass
 import json
 import re
-import secrets
 import socket
 import ssl
 import hashlib
@@ -128,15 +127,17 @@ def main(argv=None):
     admin_password = getpass.getpass('Existing ASMS administrator password: ')
     username = input('New integration username [jira_bus_api]: ').strip() or 'jira_bus_api'
     email = input('Unique integration email: ').strip()
-    password = secrets.token_urlsafe(32)
+    password = getpass.getpass('New integration password (input hidden): ')
+    if password != getpass.getpass('Repeat new integration password: '):
+        print('Passwords do not match; no changes made.')
+        return 2
     if input('Type CREATE to grant ASMS Admin, FireFlow Admin and ALL_FIREWALLS Standard: ').strip() != 'CREATE':
         print('No changes made.')
         return 2
     result = create_asms_user(
         transport, admin, admin_password, username, password, email)
     print(json.dumps(result, sort_keys=True))
-    print('Generated FireFlow password (shown once):', password)
-    print('Save it in a password manager, then enter it in bus_conf.')
+    print('Account created. Enter the same password later in bus_conf.')
     return 0
 
 
