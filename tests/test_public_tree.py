@@ -42,6 +42,23 @@ class PublicTreeScannerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('forbidden public artifact', result.stderr)
 
+    def test_only_reviewed_screenshot_bytes_are_allowed(self):
+        source = ROOT / 'docs/screenshots/21-docker-installer.png'
+        name = 'docs/screenshots/21-docker-installer.png'
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            target = root / name
+            target.parent.mkdir(parents=True)
+            target.write_bytes(source.read_bytes())
+            accepted = subprocess.run([sys.executable, str(SCANNER), str(root)],
+                                      capture_output=True, text=True)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            target.write_bytes(target.read_bytes() + b'changed')
+            rejected = subprocess.run([sys.executable, str(SCANNER), str(root)],
+                                      capture_output=True, text=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn('reviewed screenshot digest changed', rejected.stderr)
+
     def test_symbolic_link_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
