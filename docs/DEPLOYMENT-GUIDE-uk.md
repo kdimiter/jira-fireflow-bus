@@ -50,6 +50,110 @@ sh scripts/setup-forge.sh
 потрібні об'єкти через Jira API. Якщо політика замовника вимагає ручного **team-managed**
 project, використайте візуальний додаток А після встановлення Forge app.
 
+### Ручне створення полів Jira
+
+Для форми **Create → Network Access** потрібно чотири custom fields: одне структуроване Forge-поле та три текстові поля результату. Поля всередині форми — обґрунтування, Allow/Drop, джерело, призначення, протокол і порт — є частинами **одного object-поля «Мережеві доступи AlgoSec»**. Не створюйте для них окремі стандартні Jira-поля: поточна шина читає `trafficLines` зі структурованого об’єкта. `Summary` залишається стандартним заголовком Jira.
+
+| Точна назва | Тип | Хто заповнює | Required |
+|---|---|---|---|
+| Мережеві доступи AlgoSec | Forge custom field, `object`; module key `algosec-network-access` | Заявник через форму застосунку | Так |
+| FireFlow Request ID | Short text / Text field (single line), API `string` | Шина: номер створеної заявки FireFlow | Ні |
+| FireFlow Status | Short text / Text field (single line), API `string` | Шина: точний статус FireFlow | Ні |
+| FireFlow Owner | Short text / Text field (single line), API `string` | Шина: власник заявки FireFlow | Ні |
+
+Назва першого результатного поля — саме **FireFlow Request ID**, а не скорочене «FireFlow ID». Owner є текстом, не Jira User picker і не Assignee. Status є текстом, не списком статусів workflow. У company-managed Jira точний API-тип усіх трьох результатних полів — `com.atlassian.jira.plugin.system.customfieldtypes:textfield`; саме його створює `prepare-jira.sh`. Уже наявні поля правильного типу використовуйте повторно.
+
+#### 1. Встановіть Forge-форму
+
+На адміністративній робочій станції потрібні Node.js 22, npm, Forge CLI та акаунт із правами розгортання Forge і встановлення застосунку на потрібний Jira site. Runtime API-token шини для цього не використовується.
+
+```sh
+git clone --branch v0.2.1 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+cd jira-fireflow-bus
+npm install --global @forge/cli
+sh scripts/setup-forge.sh
+```
+
+Якщо перевірений checkout уже є, починайте з його кореня. Скрипт копіює Forge-код у `~/algosec-jira-forge`, встановлює npm-залежності, виконує `forge login` та за першого запуску `forge register`. Введіть власний Jira hostname, наприклад `your-tenant.atlassian.net`; виберіть environment `production` для робочого застосунку. Після `forge deploy` скрипт виконує `forge install`, а для наявної інсталяції того самого environment — `forge install --upgrade`. Реєстраційний app ID у публічному `forge/manifest.yml` є шаблоном; його замінює реєстрація вашої робочої копії. Збережіть цю копію для оновлень і не реєструйте другий app для кожного простору.
+
+Маніфест оголошує `jira:customField` із `type: object`, а не `jira:customFieldType`: після встановлення використовуйте створене застосунком поле. Звичайне текстове поле з такою самою назвою не відобразить мережеву форму. [Atlassian: Forge custom field](https://developer.atlassian.com/platform/forge/manifest-reference/modules/jira-custom-field/).
+
+#### 2. Додайте Forge-поле до Network Access
+
+Для **team-managed** простору, як на ілюстраціях:
+
+1. Відкрийте **меню ⋯ біля назви простору → Space settings → Fields → Add fields**.
+2. Знайдіть наявне **Мережеві доступи AlgoSec** та додайте його до простору. Якщо у розкладці є посилання **Go to the Fields page**, воно веде до цього кроку. Не натискайте Create field для повторного створення Forge-поля.
+3. Перейдіть у **Space settings → Work types → Network Access**. У правій панелі Fields знайдіть додане поле та перетягніть його в **Description fields**. Натисніть **Save changes**.
+4. Відкрийте властивості поля в розкладці, увімкніть **Required** і знову збережіть зміни. Поле має бути видимим у формі створення.
+
+Розкладка й додавання наявних полів описані в [Atlassian: поля team-managed простору](https://support.atlassian.com/jira-software-cloud/docs/customize-an-issues-fields-in-team-managed-projects/). Якщо поле не знайдено, перевірте site/environment установленого Forge app та глобальний список полів під Jira administrator; порожній список не виправляється створенням однойменного Short text.
+
+Для **company-managed** проєкту Jira administrator відкриває **Settings → Work items → Screens → потрібний екран → ⋯ → Configure** і додає **Мережеві доступи AlgoSec** через **Select field**. Перевірте екрани Create/Edit/View, які screen scheme призначає саме типу Network Access, і контекст поля для цього проєкту/типу. Після цього розмістіть поле в основній частині work item layout. [Atlassian: налаштування екранів](https://support.atlassian.com/jira-cloud-administration/docs/add-a-custom-field-to-a-screen).
+
+#### 3. Вручну створіть три поля результату
+
+Для **team-managed** простору:
+
+1. Відкрийте **Space settings → Fields → Add fields → Create field**. У показаній старішій розкладці той самий початок доступний через **Work types → Network Access → Create a field**.
+2. Виберіть **Short text**, задайте назву **FireFlow Request ID** і натисніть **Create**. Не задавайте початкове значення і не вмикайте Required.
+3. Повторіть крок для **FireFlow Status**, потім для **FireFlow Owner** — кожного разу тип **Short text**.
+4. У **Work types → Network Access** перетягніть кожне поле з панелі Fields до дозволеної Jira області розкладки та натисніть **Save changes**. Для полів результату допустимо **Hide when empty**; вони з’являться після запису шиною.
+
+Для **company-managed** проєкту:
+
+1. Під Jira administrator відкрийте **Settings → Work items → Fields → Create new field**. У старішій навігації: **Settings → Issues → Custom fields → Create custom field**.
+2. Виберіть **Short text / Text field (single line)**, введіть **FireFlow Request ID** і натисніть **Create**. Повторіть для **FireFlow Status** та **FireFlow Owner**.
+3. Додайте поля на відповідні екрани через **Work items → Screens → ⋯ → Configure → Select field**; перевірте їхній контекст для проєкту та Network Access. Залиште всі три Optional.
+
+[Atlassian: ручне створення глобального поля](https://support.atlassian.com/jira-cloud-administration/docs/create-a-custom-field/). Назви меню залежать від доступної у tenant навігації. `prepare-jira.sh` автоматизує company-managed варіант; він не створює Forge object-поле і відхиляє team-managed проєкт.
+
+#### 4. Знайдіть customfield IDs і прив’яжіть їх до шини
+
+Під Jira administrator відкрийте глобальний список **Settings → Work items → Fields** та звірте чотири назви, типи й область застосування. Щоб отримати API-ідентифікатори до конфігурації шини, відкрийте у браузері з активною Jira-сесією `https://your-tenant.atlassian.net/rest/api/3/field`. Знайдіть кожний об’єкт за `name` і запишіть його `id` у форматі `customfield_12345`. Для Forge перевірте `schema.type = object` і завершення `schema.custom` на `/static/algosec-network-access`; для решти — `schema.type = string`. За однакових назв перевірте app/environment і контекст, а не вибирайте перший збіг. [Atlassian: API переліку полів](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-fields/).
+
+На вже налаштованому й запущеному Docker deployment ті самі назви, ID та API-типи можна прочитати без виведення токена:
+
+```sh
+sudo docker exec algosec-jira-bus python /usr/local/libexec/algosec-jira-bus-scheduler.py fields --like AlgoSec
+sudo docker exec algosec-jira-bus python /usr/local/libexec/algosec-jira-bus-scheduler.py fields --like FireFlow
+```
+
+Для налаштування Docker виконайте `sudo bus_conf`; для першої інсталяції запустіть `.run` після підготовки полів. Майстер повторно запитає актуальні credentials, ключ проєкту й work type ID. Потім він шукає поле за точною назвою та API-типом: `object` для Forge, `string` для результатів. Коли потрібен ручний вибір, введіть перевірений `customfield_...`. Потрібні **чотири різні ID**. Успішний автоматичний збіг за назвою не замінює перевірку контексту поля.
+
+За ручного редагування змінюйте лише відповідні частини наявного `bus.json`; нижче наведено **фрагмент, не повний конфігураційний файл**:
+
+```json
+{
+  "mapping": {
+    "structured": { "field": "customfield_10000" }
+  },
+  "mirror": {
+    "result_fields": {
+      "id": "customfield_10001",
+      "status": "customfield_10002",
+      "owner": "customfield_10003"
+    }
+  }
+}
+```
+
+Усі числа тут умовні. Замініть їх ID власного tenant; збережіть інші параметри mapping, mirror, JQL і workflow. Файл Docker: `/opt/algosec-jira-docker/config/bus.json`; native: `/etc/algosec-jira-bus/bus.json`. Збережіть власника й режим 0600. Першу перевірку виконуйте з `apply: false`; на чинному deployment узгодьте зміну й зупиніть writer перед ручним редагуванням.
+
+#### 5. Required, права і перевірка doctor
+
+У team-managed позначте тільки Forge-поле **Required** у розкладці Network Access. Для company-managed перевірте **Settings → Work items → Field configurations → конфігурація Network Access → Configure**: для Forge встановіть Required, для трьох результатних полів — Optional. Переконайтеся, що відповідна field configuration scheme призначена цьому проєкту й типу. Не змінюйте спільну конфігурацію інших типів без перевірки її області застосування. [Atlassian: конфігурації полів](https://support.atlassian.com/jira-cloud-administration/docs/add-edit-and-delete-a-field-configuration/).
+
+Адміністратор налаштування має права керувати застосунком, полями й проєктом. Runtime Jira-account потребує доступу до Jira і проєкту, читання заявок/полів, редагування трьох полів результату, додавання коментарів і виконання потрібних переходів; права Resolve потрібні лише якщо їх вимагає workflow. У team-managed перевірте роль у **Space settings → Access**, у company-managed — permission scheme. Позначка Required або приховування порожнього поля не обмежує права його редагування.
+
+Майстер сам запускає `doctor` до пропозиції `START`. Для вже налаштованого Docker:
+
+```sh
+sudo docker exec algosec-jira-bus python /usr/local/libexec/algosec-jira-bus-scheduler.py doctor
+```
+
+`doctor` читає API та перевіряє конфігурацію; він не створює заявки й не доводить можливість запису в усі result fields. За порожнього JQL також немає реальної заявки для перевірки переходів. Розберіть FAIL/WARN до активації, потім у dry-run перевірте одну погоджену заявку: **Create → ваш Space → Network Access**, мережеву форму і збережені значення. Порожнє Required Forge-поле має блокувати створення; три порожні поля результату — не блокувати. Після погодженого `START` перевірте заповнення FireFlow Request ID/Status/Owner та відсутність повторного створення. Цей тест завершує перевірку, яку один `doctor` виконати не може.
+
 ### AlgoSec FireFlow API account
 
 Для нового середовища `prepare-fireflow.sh` через HTTPS API створює `jira_bus_api` з правами,
