@@ -18,9 +18,9 @@ Only the latest release and the current `main` branch receive security fixes.
 
 - Jira and FireFlow communication must use HTTPS.
 - Secrets belong in the protected Linux or Docker paths documented in the deployment guide.
-- Public releases must never contain a connector wheel, container image containing that
-  wheel, runtime configuration, credentials, receipts, state, logs, or live screenshots.
+- Public releases may contain the self-contained bus and its ready Docker image. They must
+  never contain runtime configuration, credentials, receipts, state, logs, or live screenshots.
 - The setup wizard accepts an existing dedicated integration account and never grants ASMS
   or FireFlow roles. Administrators must validate the minimum rights for their deployment.
-- Security controls owned by the separately distributed connector must be reviewed against
-  the exact wheel and digest used for deployment.
+- The release image and installers are verified with the checksums published in the same
+  GitHub Release. Runtime secrets are mounted or read from the protected host path.

@@ -19,6 +19,11 @@ text_rules = (
         r'(?i)github\.com/kdimiter/(?!jira-fireflow-bus(?:\.git)?(?:[\s/#?]|$))[a-z0-9_.-]+')),
     ('probable private key filename', re.compile(r'(?i)\b(?!example(?:[_-]))[a-z0-9_.-]+_(ed25519|rsa)\b')),
 )
+retired_runtime_markers = (
+    'algosec' + '_mcp',
+    'algosec' + '_host_mcp',
+    'algosec' + '-host-mcp',
+)
 forbidden_suffixes = ('.whl', '.run', '.tar', '.tar.gz', '.tgz', '.zip', '.pem', '.key')
 sensitive_names = {'bus.json', 'secrets.json', 'secrets.env'}
 sensitive_suffixes = ('.jsonl', '.started.json', '.p12', '.pfx', '.jks', '.kdbx')
@@ -52,6 +57,8 @@ for path in root.rglob('*'):
     for label, pattern in text_rules:
         if pattern.search(text):
             violations.append(name + ': contains ' + label)
+    if any(marker in text.casefold() for marker in retired_runtime_markers):
+        violations.append(name + ': references the retired external runtime')
 manifest = root / 'forge/manifest.yml'
 if manifest.exists() and '00000000-0000-0000-0000-000000000000' not in manifest.read_text():
     violations.append('forge/manifest.yml: registered Forge app ID is not allowed')

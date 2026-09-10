@@ -21,8 +21,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - run: PYTHONPATH=tests/stubs python -m unittest discover -s tests
+      - run: python -m unittest discover -s tests
       - run: python -m py_compile algosec_jira_bus/*.py scripts/*.py
+      - run: python -m pip install --disable-pip-version-check 'setuptools==84.0.0'
+      - run: python -m pip install --no-deps --no-build-isolation .
+      - run: python -c "import importlib.util; import algosec_jira_bus, algosec_jira_bus.bus; assert importlib.util.find_spec('algosec' + '_mcp') is None"
+      - run: algosec-jira-bus --help
 
   forge:
     name: Forge tests and audit

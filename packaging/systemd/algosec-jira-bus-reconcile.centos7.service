@@ -30,7 +30,7 @@ Group=algosec-jira-bus
 
 # 219 has no StateDirectory, so the directory is made here instead. PermissionsStartOnly
 # runs this one line as root, which is what lets it set the owner; everything after it runs
-# as User=. The connector refuses to use a state directory that is not 0700 and owned by
+# as User=. The bus refuses to use a state directory that is not 0700 and owned by
 # the running account, so these modes are not decoration.
 PermissionsStartOnly=yes
 ExecStartPre=/usr/bin/install -d -m 0700 -o algosec-jira-bus -g algosec-jira-bus /var/lib/algosec-jira-bus

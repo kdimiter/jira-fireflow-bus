@@ -5,19 +5,19 @@ what reached the appliance. They say nothing about the issues the bus *refused*,
 it skipped, the statuses it mirrored or the failures it parked -- and those are exactly
 the questions asked when an access request did not appear where somebody expected it.
 
-Rotation, locking, the 0600 mode and the private state directory come from the
-connector's ``Audit``: this is the same journal machinery pointed at a different file, so
-there is one implementation of the careful part rather than two that drift.
+Rotation, locking, the 0600 mode and the private state directory come from the bus-owned
+``Audit`` implementation. The journal points that machinery at a different file so there
+is one implementation of the careful part rather than two that drift.
 """
 import json
 import os
 import time
 
-from algosec_mcp.runtime import Audit, redact
+from .runtime import Audit, redact
 
 from .jira import KEY
 
-# Closed set, for the same reason the connector keeps one: an unexpected value is recorded
+# Closed set: an unexpected value is recorded
 # as 'invalid' instead of echoing text of unknown origin into the journal.
 KINDS = frozenset((
     'pass', 'created', 'skipped', 'refused', 'mirrored', 'transition',

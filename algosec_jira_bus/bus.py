@@ -13,10 +13,10 @@ import os
 from pathlib import Path
 import time
 
-from algosec_mcp.config import private_json
-from algosec_mcp.fireflow import FireFlow
-from algosec_mcp.http import request_json
-from algosec_mcp.runtime import Audit
+from .config import private_json
+from .fireflow import FireFlow
+from .transport import request_json
+from .runtime import Audit
 
 from .doctor import run as diagnose
 from .jira import Jira
@@ -25,7 +25,7 @@ from .queue import Failures
 from .reconcile import reconcile
 from .sync import State, mirror, run
 
-STATE = Path.home() / '.local/state/algosec-host-mcp'
+STATE = Path.home() / '.local/state/algosec-jira-bus'
 
 
 def locations(settings, state_dir=None):
@@ -50,7 +50,7 @@ def build(settings, state_dir=None):
     try:
         audit = Audit(directory)
     except ValueError as error:
-        # The connector guards this hard and says so without naming the path. The path is
+        # The runtime guards this hard and says so without naming the path. The path is
         # the whole of what an operator needs here, so say it: this is the first thing a
         # fresh deployment gets wrong, and 'chmod 700' is the entire fix.
         raise SystemExit('%s: %s (needs mode 0700 and your own ownership)' % (error, directory))

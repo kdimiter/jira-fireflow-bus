@@ -5,8 +5,8 @@ usage() {
     cat <<'HELP'
 Usage: sh setup.sh [--mode native|docker] [--bundle PATH.run] [-- helper-options]
 Without --mode, asks whether to install a native systemd service or Docker deployment.
-Keep setup.sh and algosec-jira-bus-linux.run together. Docker also needs the supplied
-install-docker.sh, or run this helper from the extracted scripts directory.
+Native mode needs algosec-jira-bus-linux.run. Docker mode uses the supplied ready image
+archive and install-docker.sh; it never builds software on the target server.
 Native mode requires root, Python 3.11+ and a running systemd manager.
 Docker mode delegates requirements and configuration to install-docker.sh.
 No passwords are accepted by this dispatcher; enter credentials in the setup wizard.
@@ -45,4 +45,4 @@ else
     echo 'Docker helper missing; keep install-docker.sh alongside setup.sh or use the extracted bundle.' >&2
     exit 1
 fi
-exec sh "$DOCKER_HELPER" --bundle "$BUNDLE" "$@"
+exec sh "$DOCKER_HELPER" "$@"

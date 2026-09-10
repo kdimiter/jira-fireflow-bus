@@ -6,12 +6,6 @@ SOURCE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 [ "$(uname -s)" = Linux ] || { echo 'Installation requires Linux; use --extract to inspect on other systems.' >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo 'Run installer with sudo.' >&2; exit 1; }
 [ -f "$SOURCE/scripts/setup_wizard.py" ] || { echo 'Incomplete installer: missing wizard.' >&2; exit 1; }
-CONNECTOR_WHEEL=${ALGOSEC_CONNECTOR_SOURCE:-}
-case "$CONNECTOR_WHEEL" in
-    /*/algosec_host_mcp-*-py3-none-any.whl) ;;
-    *) echo 'Set --connector-wheel to an authorized universal algosec_host_mcp wheel.' >&2; exit 1;;
-esac
-[ -f "$CONNECTOR_WHEEL" ] && [ ! -L "$CONNECTOR_WHEEL" ] || { echo 'Connector wheel must be a regular file, not a symlink.' >&2; exit 1; }
 command -v systemctl >/dev/null 2>&1 || { echo 'systemd is required.' >&2; exit 1; }
 export ALGOSEC_SETUP_WIZARD=1
 # Validate the manager, its version and Python before interrupting an existing bus.

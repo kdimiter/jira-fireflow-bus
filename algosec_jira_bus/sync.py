@@ -15,7 +15,7 @@ returns, several statuses can share one stage, and an administrator can add, ren
 disable statuses per workflow. So the bus matches on statuses, treats their names as facts
 about one deployment rather than about FireFlow, and compares them without regard to case.
 
-Nothing is exposed: Jira Cloud is only ever read and written outbound. The connector only
+Nothing is exposed: Jira Cloud is only ever read and written outbound. The bus only
 *requests* a change and *reports* progress. It never approves, plans or implements one —
 those stay with the FireFlow workflow and the people in it, which is the whole reason a
 change process exists.
@@ -27,12 +27,17 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
+import tempfile
 
 from .adf import read_table
-from .jira import Jira, plain
+from .jira import Jira, JiraError, JiraMutationUnknown, plain, validate_issue
 from .journal import Silent
 from .queue import Failures, sent_anything
-from algosec_mcp.runtime import secure_dir
+from .config import private_json
+from .runtime import secure_dir
+from .fireflow import TrafficRequest
+from .transport import https_origin
 
 # How many requests one pass may submit. Not a limit on what the bus *sees* -- the search
 # reads every page, and anything over the cap is deferred to the next pass minutes later,
@@ -48,7 +53,7 @@ VALUE = re.compile(r'[A-Za-z0-9_.:*/@ -]{1,256}')
 # FireFlow's own bound on one request, reported as NUMBER_OF_TRAFFIC_LINES_OUT_OF_BOUNDS.
 # Refusing here gives one clear sentence naming the issue instead of a rejected
 # submission whose operation id has already been spent.
-MAX_TRAFFIC_LINES = 500
+MAX_TRAFFIC_LINES = 100
 
 # A source or destination item is either a literal address or the name of an object
 # already defined on the device, and FireFlow spells the two differently:
@@ -73,15 +78,14 @@ class MappingError(ValueError):
 
 
 def validate_for_adapter(request):
-    """Use the installed connector's real schema during preflight and dry run too."""
-    from algosec_mcp.fireflow import TrafficRequest
+    """Use the bus FireFlow schema during preflight and dry run too."""
     try:
         TrafficRequest.model_validate(request)
     except ValueError as error:
         details = error.errors() if callable(getattr(error, 'errors', None)) else []
         locations = sorted({'.'.join(map(str, item.get('loc') or ())) for item in details})
         locations = [location for location in locations if location] or ['request']
-        raise MappingError('Installed FireFlow adapter rejects request at %s; '
+        raise MappingError('Bus FireFlow adapter rejects request at %s; '
                            'check supported item types and limits' % ', '.join(locations[:5])) from None
 
 
@@ -185,10 +189,9 @@ def table_lines(issue, spec, fallback_action):
 
 def jira_attribution(issue, origin):
     """Human attribution, separate from the service identity used for API calls."""
-    from urllib.parse import urlsplit
-    base = origin.rstrip('/')
-    url = urlsplit(base)
-    if url.scheme != 'https' or not url.hostname or url.username or url.password or url.path or url.query or url.fragment:
+    try:
+        base = https_origin(origin)
+    except ValueError:
         raise MappingError('Invalid Jira origin for attribution')
     key = str(issue.get('key', ''))
     if not re.fullmatch(r'[A-Z][A-Z0-9_]*-[0-9]+', key):
@@ -267,7 +270,7 @@ class State:
         self.path = Path(path)
         secure_dir(self.path.parent)
         try:
-            self.data = json.loads(self.path.read_text())
+            self.data = private_json(self.path, os.getuid(), max_bytes=16 * 1024 * 1024)
         except FileNotFoundError:
             self.data = {}
         if not isinstance(self.data, dict):
@@ -286,11 +289,16 @@ class State:
         Every CLI writer uses this same lock; a blocked writer loads fresh state only
         after the previous process finishes. Process exit releases flock automatically.
         """
-        path = Path(path).resolve()
+        path = Path(path).absolute()
         secure_dir(path.parent)
         fd = os.open(path.with_name(path.name + '.lock'),
-                     os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+                     os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW |
+                     getattr(os, 'O_CLOEXEC', 0), 0o600)
         try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1 or info.st_mode & 0o077):
+                raise ValueError('State lock must be a private regular file')
             fcntl.flock(fd, fcntl.LOCK_EX)
             yield
         finally:
@@ -304,18 +312,29 @@ class State:
 
     def save(self):
         """Replace the file atomically, owner-readable only."""
-        temporary = self.path.with_name('.' + self.path.name + '.new')
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, 'w') as stream:
-            json.dump(self.data, stream, indent=2)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, self.path)
-        directory_fd = os.open(self.path.parent, os.O_RDONLY)
+        fd, temporary = tempfile.mkstemp(prefix='.' + self.path.name + '.', dir=self.path.parent)
         try:
-            os.fsync(directory_fd)
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, 'w') as stream:
+                fd = None
+                json.dump(self.data, stream, indent=2, allow_nan=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.path)
+            directory_fd = os.open(self.path.parent, os.O_RDONLY |
+                                   getattr(os, 'O_DIRECTORY', 0) |
+                                   getattr(os, 'O_CLOEXEC', 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         finally:
-            os.close(directory_fd)
+            if fd is not None:
+                os.close(fd)
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
 
     def record(self, key, outcome, clear_failure=False):
         current = dict(self.data['issues'].get(key) or {})
@@ -394,8 +413,16 @@ def run(settings, fireflow, state, jira=None, dry_run=True, log=print,
             and failures.blocked(key))
     }
     for issue in issues:
-        key = issue.get('key') or '?'
-        identifier = issue.get('id')
+        key = issue.get('key') if isinstance(issue, dict) else '?'
+        try:
+            issue = validate_issue(issue)
+        except JiraError as error:
+            key = key if isinstance(key, str) and key else '?'
+            refused.append((key, str(error)))
+            journal.write('refused', key, error=str(error))
+            log('refused %s: %s' % (key, error))
+            continue
+        identifier = issue['id']
         already = identifier in existing_issue_ids
         if state.seen(key) or already:
             skipped.append(key)
@@ -409,8 +436,6 @@ def run(settings, fireflow, state, jira=None, dry_run=True, log=print,
             capped.append(key)
             continue
         try:
-            if mapping.get('structured') and not issue.get('id'):
-                raise MappingError('Jira issue is missing its immutable ID')
             if mode == 'todo':
                 issue = fresh_todo(jira, issue, wanted)
             elif mapping.get('structured') and not dry_run:
@@ -433,25 +458,25 @@ def run(settings, fireflow, state, jira=None, dry_run=True, log=print,
             created.append((key, request))
             if identifier:
                 existing_issue_ids.add(identifier)
-            log('would create for %s: %s' % (key, json.dumps(request['traffic'], ensure_ascii=False)))
+            traffic_digest = hashlib.sha256(json.dumps(
+                request['traffic'], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            log('would create for %s: traffic_lines=%d digest=%s' %
+                (key, len(request['traffic']), traffic_digest))
             continue
         # Prefer Jira's immutable numeric ID so renaming an issue key cannot create a
         # second request. Include the tenant when configured to avoid cross-tenant reuse.
-        operation_id = 'jira-' + key.replace('-', '_')
-        if issue.get('id'):
-            origin = settings['jira'].get('base_url', '').rstrip('/')
-            if not origin:
-                operation_id = 'jira-id-' + str(issue['id'])
-            else:
-                tenant = hashlib.sha256(origin.encode()).hexdigest()[:12]
-                operation_id = 'jira-%s-%s' % (tenant, issue['id'])
+        origin = settings['jira'].get('base_url', '')
+        if not origin:
+            operation_id = 'jira-id-' + identifier
+        else:
+            tenant = hashlib.sha256(https_origin(origin).encode()).hexdigest()[:12]
+            operation_id = 'jira-%s-%s' % (tenant, identifier)
         # Separate intent is durable before the network call, but is not proof of creation.
         # Reconciliation can find structured receipts even if create raises or we crash.
         state.data['intents'][key] = {'operation_id': operation_id,
-                                      'jira_issue_id': issue.get('id')}
+                                      'jira_issue_id': identifier}
         state.save()
-        if issue.get('id'):
-            blocked_intent_issue_ids.add(issue['id'])
+        blocked_intent_issue_ids.add(identifier)
         try:
             result = fireflow.create(request, operation_id, 'Requested in Jira issue ' + key)
         except Exception as error:
@@ -470,7 +495,7 @@ def run(settings, fireflow, state, jira=None, dry_run=True, log=print,
         failures.clear(key)
         identifier = change_request_id(result)
         outcome = {'request': result.get('receipt'), 'operation_id': result.get('operation_id') or operation_id,
-                   'change_request_id': identifier, 'status': None, 'jira_issue_id': issue.get('id')}
+                   'change_request_id': identifier, 'status': None, 'jira_issue_id': issue['id']}
         submitted = (settings.get('mirror') or {}).get('submitted_transition')
         if identifier is not None and submitted:
             outcome['pending_transition'] = submitted
@@ -480,8 +505,7 @@ def run(settings, fireflow, state, jira=None, dry_run=True, log=print,
             outcome.update(pending_fields={id_field: str(identifier)},
                            pending_observation={'id': identifier, 'create_only': True})
         state.record(key, outcome)
-        if issue.get('id'):
-            existing_issue_ids.add(issue['id'])
+        existing_issue_ids.add(issue['id'])
         created.append((key, result))
         journal.write('created', key, change_request_id=identifier, receipt=result.get('receipt'))
         if identifier is None:
@@ -548,7 +572,7 @@ def field_of(body, wanted):
 
 
 # FireFlow change request ids are positive and fit a signed 32-bit integer -- the same
-# range the connector's adapter enforces before it will call anything with one. Anything
+# range the FireFlow API client enforces before it will call anything with one. Anything
 # outside it is not a small mistake to pass along: an id is the proof a request exists, and
 # recovery leans on it to decide whether a change whose outcome was unknown actually
 # happened. A zero or a negative number is not weak proof, it is none.
@@ -689,7 +713,8 @@ def move_pending(key, target, status, state, jira, failures, journal, log):
     try:
         jira.transition(key, target)
     except Exception as error:
-        queued = failures.record(key, 'transition', error)
+        queued = failures.record(key, 'transition', error,
+                                 retryable=not isinstance(error, JiraMutationUnknown))
         journal.write('parked' if queued['parked'] else 'error', key,
                       stage='transition', target=target, error=type(error).__name__)
         log('could not move %s to %s: %s' % (key, target, type(error).__name__))
@@ -852,7 +877,8 @@ def mirror(settings, fireflow, state, jira=None, dry_run=True, log=print,
         try:
             jira.comment(key, message)
         except Exception as error:
-            queued = failures.record(key, 'comment', error)
+            queued = failures.record(key, 'comment', error,
+                                     retryable=not isinstance(error, JiraMutationUnknown))
             failed.append((key, 'comment:' + type(error).__name__))
             journal.write('parked' if queued['parked'] else 'error', key, stage='comment',
                           error=type(error).__name__)

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Container entrypoint: one state writer, bounded passes, graceful shutdown."""
-import json
 import os
 from pathlib import Path
 import signal
@@ -9,16 +8,18 @@ import sys
 import threading
 import time
 
+from algosec_jira_bus.config import private_json
+
 CONFIG = '/etc/algosec-jira-bus/bus.json'
 STATE = '/var/lib/algosec-jira-bus'
 SECRETS = '/etc/algosec-jira-bus/secrets.json'
 
 
 def load_secrets(path=SECRETS):
-    path = Path(path)
-    if path.is_symlink() or path.stat().st_mode & 0o077:
-        raise ValueError('secrets.json must be a private regular file (0600)')
-    values = json.loads(path.read_text())
+    try:
+        values = private_json(Path(path), os.getuid(), max_bytes=64 * 1024)
+    except ValueError:
+        raise ValueError('secrets.json must be a private regular JSON file (0600)') from None
     if not isinstance(values, dict) or set(values) != {'JIRA_API_TOKEN', 'ASMS_API_PASSWORD'}:
         raise ValueError('secrets.json must contain JIRA_API_TOKEN and ASMS_API_PASSWORD only')
     for name, value in values.items():

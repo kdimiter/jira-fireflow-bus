@@ -1,30 +1,53 @@
 """Minimal Jira Cloud client: search, read, comment. Outbound HTTPS only.
 
 The private side always initiates. Jira Cloud never reaches into the network, so there
-are no webhooks and no inbound endpoint to defend — the connector polls.
+are no webhooks and no inbound endpoint to defend — the bus polls.
 """
 import base64
 import json
 import re
 from urllib.parse import urlencode
 
-from algosec_mcp.config import resolve_secret
-from algosec_mcp.http import request_json
+from .config import resolve_secret
+from .transport import https_origin, request_json
 
 KEY = re.compile(r'[A-Z][A-Z0-9_]{0,20}-[0-9]{1,10}')
+ISSUE_ID = re.compile(r'[1-9][0-9]{0,19}')
 
 
 class JiraError(ValueError):
     """Safe to show: never carries the API token."""
 
 
+class JiraMutationUnknown(JiraError):
+    """A non-idempotent Jira request may have committed before its reply was lost."""
+
+
+def validate_issue(value):
+    """Validate the Jira search item used as the identity and mapping boundary."""
+    if (not isinstance(value, dict)
+            or not isinstance(value.get('id'), str)
+            or not ISSUE_ID.fullmatch(value['id'])
+            or not isinstance(value.get('key'), str)
+            or not KEY.fullmatch(value['key'])
+            or not isinstance(value.get('fields'), dict)):
+        raise JiraError('Unexpected Jira issue in search response')
+    return value
+
+
 class Jira:
     def __init__(self, config, request=None):
-        self.config = config
+        if not isinstance(config, dict):
+            raise JiraError('Expected Jira configuration')
+        self.config = dict(config)
         self.request = request or request_json
         for name in ('base_url', 'email', 'token_ref'):
-            if not config.get(name):
+            if not self.config.get(name):
                 raise JiraError('Jira configuration needs ' + name)
+        try:
+            self.config['base_url'] = https_origin(self.config['base_url'])
+        except ValueError as error:
+            raise JiraError(str(error)) from None
 
     def _call(self, path, query=None, body=None, method='GET'):
         token = resolve_secret(self.config['token_ref'])
@@ -35,8 +58,14 @@ class Jira:
                                 headers={'Authorization': 'Basic ' + credentials})
         except Exception as error:
             status = getattr(error, 'code', None)
-            raise JiraError('Jira request failed%s; check the token and the JQL'
-                            % (' (HTTP %s)' % status if status else '')) from None
+            message = ('Jira request failed%s; check the token and the JQL'
+                       % (' (HTTP %s)' % status if status else ''))
+            # Jira POSTs add comments or advance workflow. If no definitive 4xx rejection
+            # came back, replay could duplicate the comment or move the issue twice.
+            if method == 'POST' and not (
+                    isinstance(status, int) and 400 <= status < 500):
+                raise JiraMutationUnknown(message) from None
+            raise JiraError(message) from None
 
     def search(self, jql, fields, limit=50):
         """Read pages up to the configured scan ceiling.
@@ -60,7 +89,7 @@ class Jira:
                 raise JiraError('Unexpected search response')
             if len(issues) + len(page) > scan_limit:
                 raise JiraError('Jira search exceeds scan_limit; narrow the JQL')
-            issues.extend(page)
+            issues.extend(validate_issue(issue) for issue in page)
             token = reply.get('nextPageToken')
             if reply.get('isLast') is True or (not token and reply.get('isLast') is not False):
                 return issues

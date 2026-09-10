@@ -42,7 +42,8 @@ TABLE_MAPPING = {'action': {'field': 'cf_action', 'values': {'Open': 'Allow', 'C
 
 
 def issue(description, action='Open', key='NET-12'):
-    return {'key': key, 'fields': {'summary': 'Open access', 'cf_action': action,
+    return {'id': str(1000 + int(key.rsplit('-', 1)[-1])), 'key': key,
+            'fields': {'summary': 'Open access', 'cf_action': action,
                                    'description': description}}
 
 
@@ -151,7 +152,7 @@ class Building(unittest.TestCase):
         grid += [['192.0.2.%d' % (n % 250), '198.51.100.1', 'tcp/443'] for n in range(501)]
         with self.assertRaises(MappingError) as caught:
             build(issue(document(table(grid))), TABLE_MAPPING, 'T', ['fw1'])
-        self.assertIn('500', str(caught.exception))
+        self.assertIn('100', str(caught.exception))
 
     def test_the_single_field_mapping_still_produces_exactly_one_line(self):
         mapping = {'action': {'field': 'cf_action', 'values': {'Open': 'Allow'}},

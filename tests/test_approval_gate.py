@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -82,6 +83,12 @@ class ApprovalGate(unittest.TestCase):
         with self.assertRaises(ApprovalError):
             self.verify()
 
+    def test_equivalent_origin_spelling_keeps_the_same_approval_binding(self):
+        self.jira.config['base_url'] = 'https://EXAMPLE.atlassian.net:443/'
+        self.capture()
+        self.jira.config['base_url'] = 'https://example.atlassian.net'
+        self.verify()
+
     def test_changed_status_rejects_capture_and_verification(self):
         self.capture()
         self.jira.issue['fields']['status']['name'] = 'To Do'
@@ -122,6 +129,40 @@ class ApprovalGate(unittest.TestCase):
         replacement = self.directory / 'other.json'
         original.rename(replacement)
         original.symlink_to(replacement)
+        with self.assertRaises(ApprovalError):
+            self.verify()
+
+    def test_hardlinked_record_rejected(self):
+        self.capture()
+        original = self.directory / '1234.json'
+        other = self.directory / 'other.json'
+        os.link(original, other)
+        with self.assertRaises(ApprovalError):
+            self.verify()
+
+    def test_record_owned_by_a_different_expected_user_is_rejected(self):
+        self.capture()
+        real_uid = os.getuid()
+        with patch.object(os, 'getuid', return_value=real_uid + 1), \
+                self.assertRaises(ApprovalError):
+            self.verify()
+
+    def test_operator_name_is_bounded(self):
+        with self.assertRaises(ApprovalError):
+            self.ledger.capture(self.jira, '1234', 'customfield_1', 'Шаблон',
+                                ['device1'], operator='x' * 257)
+
+    def test_oversized_or_ambiguous_record_rejected(self):
+        record = self.capture()
+        path = self.directory / '1234.json'
+        record['padding'] = 'x' * (64 * 1024)
+        path.write_text(json.dumps(record))
+        path.chmod(0o600)
+        with self.assertRaises(ApprovalError):
+            self.verify()
+        path.write_text('{"binding":null,"binding":%s}' %
+                        json.dumps(record['binding'], ensure_ascii=False))
+        path.chmod(0o600)
         with self.assertRaises(ApprovalError):
             self.verify()
 

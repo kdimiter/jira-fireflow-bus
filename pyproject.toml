@@ -7,9 +7,7 @@ name = "algosec-jira-bus"
 version = "0.2.0"
 description = "Poll Jira Cloud for network access requests and mirror FireFlow progress back"
 requires-python = ">=3.11"
-# The hardened transport/FireFlow connector is distributed through an authorized channel
-# and installed separately. Keeping it out of project metadata prevents public package
-# tools from attempting to resolve a non-public distribution.
+# The bus is self-contained and uses only Python's standard library at runtime.
 dependencies = []
 
 [project.scripts]

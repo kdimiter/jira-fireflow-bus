@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from algosec_jira_bus.queue import (ATTEMPTS, BASE, CAP, Failures, SLOW, delay,
-                                    sent_anything, started_receipt)
+                                    receipt_candidates, sent_anything, started_receipt)
 from algosec_jira_bus.sync import State
 
 
@@ -22,7 +22,7 @@ class Fireflow:
 
 
 def receipt_for(fireflow, operation_id):
-    from algosec_mcp.fireflow import digest
+    from algosec_jira_bus.fireflow import digest
     return fireflow.state / (digest([fireflow.config['base_url'], operation_id]) + '.started.json')
 
 
@@ -55,6 +55,12 @@ class Receipt(unittest.TestCase):
 
     def test_a_receipt_means_the_outcome_is_unknown(self):
         receipt_for(self.fireflow, 'jira_NET_12').write_text('{}')
+        self.assertTrue(sent_anything(self.fireflow, 'jira_NET_12'))
+
+    def test_a_raw_origin_receipt_also_prevents_retry(self):
+        self.fireflow.receipt_origins = ('https://asms.example.test',
+                                         'https://ASMS.Example.Test:443')
+        receipt_candidates(self.fireflow, 'jira_NET_12')[2].write_text('{}')
         self.assertTrue(sent_anything(self.fireflow, 'jira_NET_12'))
 
     def test_the_receipt_is_scoped_to_the_server_and_the_operation(self):
@@ -150,6 +156,7 @@ class Queue(unittest.TestCase):
     def test_a_state_file_written_before_the_queue_existed_still_loads(self):
         path = Path(self.directory.name) / 'state' / 'old.json'
         path.write_text(json.dumps({'issues': {'NET-1': {'status': 'Plan'}}}))
+        path.chmod(0o600)
         state = State(path)
         self.assertEqual(state.entries(), {'NET-1': {'status': 'Plan'}})
         self.assertEqual(Failures(state).pending(), {})

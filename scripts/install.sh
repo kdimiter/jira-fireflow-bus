@@ -13,8 +13,7 @@
 # replaces the unit. A mode kept in ExecStart would survive until the first upgrade and
 # then quietly revert, and a bus back in dry run looks just like a bus with nothing to do.
 #
-#   ALGOSEC_CONNECTOR_SOURCE=/secure/connector.whl \
-#   ALGOSEC_CONNECTOR_SHA256=EXPECTED_DIGEST ./scripts/install.sh  # internal install/upgrade
+#   ./scripts/install.sh                 install/upgrade from verified bundled source
 #   ./scripts/install.sh --uninstall     remove everything except config, secrets and state
 #   ./scripts/install.sh --purge         remove those too
 #
@@ -32,8 +31,6 @@ PREFIX=/opt/$NAME
 CONFIG_DIR=/etc/$NAME
 STATE_DIR=/var/lib/$NAME
 UNIT_DIR=/etc/systemd/system
-CONNECTOR=${ALGOSEC_CONNECTOR_SOURCE:-}
-CONNECTOR_SHA256=${ALGOSEC_CONNECTOR_SHA256:-}
 SOURCE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 say() { printf '%s\n' "$*"; }
@@ -92,7 +89,7 @@ fi
 # which this script will not fetch for you, because downloading and trusting a runtime is a
 # decision an operator should make deliberately.
 PYTHON=""
-for candidate in python3.13 python3.12 python3.11 python3 "$PREFIX/python/bin/python3" /opt/algosec-mcp/python/bin/python3; do
+for candidate in python3.13 python3.12 python3.11 python3 "$PREFIX/python/bin/python3"; do
     if command -v "$candidate" >/dev/null 2>&1; then
         if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info>=(3,11) else 1)' 2>/dev/null; then
             PYTHON=$(command -v "$candidate"); break
@@ -104,61 +101,33 @@ done
   CentOS 7:  install a standalone build (python-build-standalone) under $PREFIX/python
              and run this again; there is no compiler on these appliances."
 say "interpreter: $PYTHON ($("$PYTHON" -c 'import sys;print(".".join(map(str,sys.version_info[:3])))'))"
-case "$PYTHON" in
-    /opt/algosec-mcp/*)
-        # A connector-owned standalone build can be reused deliberately. It is still
-        # somebody else's interpreter -- removing or upgrading the connector would
-        # take this venv with it. Fine as a deliberate choice on an appliance that already
-        # has one; worth knowing rather than discovering.
-        say "  note: this interpreter belongs to the connector's installation. Removing"
-        say "  /opt/algosec-mcp would break this venv. Put a standalone build under"
-        say "  $PREFIX/python if you want the bus to stand on its own."
-        ;;
-esac
+
+check_preserved_config() {
+    [ -f "$CONFIG_DIR/bus.json" ] || return 0
+    ACCOUNT_UID=$(id -u "$NAME" 2>/dev/null) \
+        || die "existing configuration found but service account $NAME is missing"
+    PYTHONPATH="$SOURCE" "$PYTHON" - "$CONFIG_DIR/bus.json" "$ACCOUNT_UID" <<'PY'
+import sys
+from algosec_jira_bus.config import private_json
+from scripts.setup_wizard import validate_secret_references
+
+try:
+    validate_secret_references(private_json(sys.argv[1], int(sys.argv[2])))
+except (OSError, ValueError) as error:
+    print('Existing configuration is not upgradeable: ' + str(error), file=sys.stderr)
+    raise SystemExit(1)
+PY
+}
 
 # Used by the bundled bootstrap before stopping any existing polling services.
 if [ "${1:-}" = "--preflight" ]; then
-    "$PYTHON" -c 'import venv, ensurepip' 2>/dev/null \
-        || die "Python venv/ensurepip unavailable; install the matching Python venv package"
+    "$PYTHON" -c 'import venv' 2>/dev/null \
+        || die "Python venv support unavailable; install the matching Python venv package"
+    check_preserved_config \
+        || die "convert legacy secret references before upgrading; running services were not stopped"
     say "preflight passed; no system changes made"
     exit 0
 fi
-
-# Installation executes wheel code as root. Verify and stage it here even when an operator
-# invokes this internal script directly instead of using the public installer.
-case "$CONNECTOR" in
-    /*/algosec_host_mcp-*-py3-none-any.whl) ;;
-    *) die "set ALGOSEC_CONNECTOR_SOURCE to an absolute authorized universal connector wheel" ;;
-esac
-[ -f "$CONNECTOR" ] && [ ! -L "$CONNECTOR" ] || die "connector wheel must be a regular file, not a symlink"
-CONNECTOR_STAGE=$(mktemp -d /tmp/algosec-connector.XXXXXX)
-trap 'rm -rf "$CONNECTOR_STAGE"' 0 HUP INT TERM
-STAGED_CONNECTOR=$CONNECTOR_STAGE/$(basename "$CONNECTOR")
-"$PYTHON" - "$CONNECTOR" "$CONNECTOR_SHA256" "$STAGED_CONNECTOR" <<'PY'
-import hashlib, os, pathlib, stat, sys
-source, expected, target = pathlib.Path(sys.argv[1]), sys.argv[2].lower(), pathlib.Path(sys.argv[3])
-if len(expected) != 64 or any(c not in '0123456789abcdef' for c in expected):
-    raise SystemExit('Connector SHA256 must be exactly 64 hexadecimal characters')
-fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
-digest = hashlib.sha256()
-try:
-    info = os.fstat(fd)
-    if not stat.S_ISREG(info.st_mode) or info.st_size > 100 * 1024 * 1024:
-        raise SystemExit('Connector must be a regular file smaller than 100 MiB')
-    with os.fdopen(fd, 'rb') as src, target.open('xb') as dst:
-        fd = None
-        for block in iter(lambda: src.read(1024 * 1024), b''):
-            digest.update(block)
-            dst.write(block)
-finally:
-    if fd is not None:
-        os.close(fd)
-if digest.hexdigest() != expected:
-    target.unlink(missing_ok=True)
-    raise SystemExit('Connector SHA256 mismatch; installation stopped')
-target.chmod(0o600)
-PY
-CONNECTOR=$STAGED_CONNECTOR
 
 # --- account and directories --------------------------------------------------------------
 if ! getent group "$NAME" >/dev/null 2>&1; then groupadd --system "$NAME"; fi
@@ -170,15 +139,30 @@ install -d -m 0755 "$PREFIX"
 install -d -m 0700 -o "$NAME" -g "$NAME" "$CONFIG_DIR"
 install -d -m 0700 -o "$NAME" -g "$NAME" "$STATE_DIR"
 
+# Repeat the guard immediately before replacing application files, in case the
+# configuration changed after preflight.
+check_preserved_config \
+    || die "convert legacy secret references before upgrading; installed application files were not changed"
+
 # --- the code -----------------------------------------------------------------------------
 if [ ! -x "$PREFIX/venv/bin/python" ]; then
-    "$PYTHON" -m venv "$PREFIX/venv"
+    "$PYTHON" -m venv --without-pip "$PREFIX/venv"
 fi
-"$PREFIX/venv/bin/python" -m pip install --quiet --upgrade pip
-say "installing the operator-supplied connector wheel; public Python dependencies require package-index access"
-"$PREFIX/venv/bin/python" -m pip install --quiet "$CONNECTOR" \
-    || die "could not install the connector wheel or its public Python dependencies"
-"$PREFIX/venv/bin/python" -m pip install --quiet "$SOURCE"
+# Runtime is standard-library-only. Copy the verified bundle source and create the command
+# locally, so installation never downloads or executes package-index content as root.
+rm -rf "$PREFIX/app.new"
+install -d -m 0755 "$PREFIX/app.new"
+cp -R "$SOURCE/algosec_jira_bus" "$PREFIX/app.new/"
+chmod -R a+rX "$PREFIX/app.new"
+rm -rf "$PREFIX/app.old"
+if [ -d "$PREFIX/app" ]; then mv "$PREFIX/app" "$PREFIX/app.old"; fi
+mv "$PREFIX/app.new" "$PREFIX/app"
+rm -rf "$PREFIX/app.old"
+cat > "$PREFIX/venv/bin/$NAME" <<'SH'
+#!/bin/sh
+PYTHONPATH=/opt/algosec-jira-bus/app exec /opt/algosec-jira-bus/venv/bin/python -m algosec_jira_bus.bus "$@"
+SH
+chmod 0755 "$PREFIX/venv/bin/$NAME"
 # The docs the units point at, so Documentation= is not a dangling path.
 install -d -m 0755 "$PREFIX/docs"
 for doc in "$SOURCE"/docs/*.md; do install -m 0644 "$doc" "$PREFIX/docs/"; done
@@ -197,9 +181,8 @@ if [ ! -f "$CONFIG_DIR/secrets.env" ]; then
 # Values for the env: references in bus.json. This file is read by systemd, not by a shell:
 # write NAME=value with no quotes and no export.
 #
-# Use env: references here only where a keyring is unavailable, which is every headless
-# appliance. On a host with a working keyring, prefer keyring: references in bus.json and
-# leave this file empty.
+# The bus resolves these env: references at runtime. Keep this file private and readable
+# only by the dedicated service account.
 #JIRA_API_TOKEN=
 #ASMS_API_PASSWORD=
 ENV

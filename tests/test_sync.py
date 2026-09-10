@@ -13,8 +13,10 @@ MAPPING = {'action': {'field': 'cf_action', 'values': {'Open': 'Allow', 'Close':
 
 
 def issue(key='NET-12', action='Open', source='192.0.2.0/24', destination='198.51.100.5',
-          service='tcp/443', summary='Open access for billing'):
-    return {'key': key, 'fields': {'summary': summary, 'cf_action': action, 'cf_src': source,
+          service='tcp/443', summary='Open access for billing', identifier=None):
+    identifier = identifier or str(1000 + int(key.rsplit('-', 1)[-1]))
+    return {'id': identifier, 'key': key,
+            'fields': {'summary': summary, 'cf_action': action, 'cf_src': source,
                                    'cf_dst': destination, 'cf_svc': service}}
 
 
@@ -102,11 +104,21 @@ class Run(unittest.TestCase):
         self.assertEqual(len(fireflow.calls), 1)
         self.assertEqual(result['skipped'], ['NET-12'])
 
-    def test_the_operation_id_is_derived_from_the_issue_key(self):
+    def test_the_operation_id_is_derived_from_the_immutable_issue_id(self):
         fireflow = Fireflow()
         run(self.settings, fireflow, self.state, Jira([issue()]), dry_run=False, log=lambda *a: None)
-        self.assertEqual(fireflow.calls[0][1], 'jira-NET_12')
+        self.assertEqual(fireflow.calls[0][1], 'jira-id-1012')
         self.assertIn('NET-12', fireflow.calls[0][2])
+
+    def test_every_intake_mode_refuses_an_issue_without_an_immutable_id(self):
+        for mapping in (MAPPING, {**MAPPING, 'table': {'field': 'description', 'columns': {
+                'source': 'Source', 'destination': 'Destination', 'service': 'Service'}}}):
+            broken = issue()
+            broken.pop('id')
+            settings = {**self.settings, 'mapping': mapping}
+            result = run(settings, Fireflow(), State(self.state.path.parent / ('state-%d.json' % len(mapping))),
+                         Jira([broken]), dry_run=False, log=lambda *a: None)
+            self.assertEqual([key for key, _ in result['refused']], ['NET-12'])
 
     def test_one_bad_issue_does_not_stop_the_others(self):
         fireflow = Fireflow()

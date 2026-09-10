@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from algosec_jira_bus.journal import Journal
+from algosec_jira_bus.jira import JiraMutationUnknown
 from algosec_jira_bus.queue import ATTEMPTS, BASE, Failures
 from algosec_jira_bus.sync import State, mirror, run
 
@@ -18,7 +19,8 @@ SETTINGS = {'jira': {'jql': 'project = NET'},
 
 
 def issue(key='NET-12', action='Open'):
-    return {'key': key, 'fields': {'summary': 'Open access', 'cf_action': action,
+    return {'id': str(1000 + int(key.rsplit('-', 1)[-1])), 'key': key,
+            'fields': {'summary': 'Open access', 'cf_action': action,
                                    'cf_src': '192.0.2.1', 'cf_dst': '192.0.2.2', 'cf_svc': 'tcp/443'}}
 
 
@@ -63,7 +65,7 @@ class Fireflow:
     def create(self, request, operation_id, reason):
         if self.fail_create:
             if self.leaves_receipt:
-                from algosec_mcp.fireflow import digest
+                from algosec_jira_bus.fireflow import digest
                 (self.state / (digest([self.config['base_url'], operation_id]) + '.started.json')).write_text('{}')
             raise self.fail_create
         self.created.append(operation_id)
@@ -203,6 +205,33 @@ class Mirroring(Base):
         healthy = Jira()
         self.call_mirror(fireflow, healthy)
         self.assertEqual([key for key, _ in healthy.comments], ['NET-12'])
+
+    def test_a_comment_with_unknown_outcome_is_parked_and_never_reposted(self):
+        self.seed('NET-12', 42)
+        fireflow = Fireflow(self.root / 'receipts', statuses={42: 'Plan'})
+        self.call_mirror(fireflow, Jira(fail_comment=JiraMutationUnknown('lost response')))
+        entry = self.failures.entry('NET-12')
+        self.assertTrue(entry['parked'])
+        self.assertEqual(entry['reason'], 'outcome_unknown')
+        self.clock.advance(10 ** 6)
+        healthy = Jira()
+        result = self.call_mirror(fireflow, healthy)
+        self.assertEqual(result['deferred'], ['NET-12'])
+        self.assertEqual(healthy.comments, [])
+
+    def test_a_transition_with_unknown_outcome_is_parked_and_never_reposted(self):
+        self.seed('NET-12', 42)
+        fireflow = Fireflow(self.root / 'receipts', statuses={42: 'Resolved'})
+        self.call_mirror(
+            fireflow, Jira(fail_transition=JiraMutationUnknown('lost response')))
+        entry = self.failures.entry('NET-12')
+        self.assertTrue(entry['parked'])
+        self.assertEqual(entry['reason'], 'outcome_unknown')
+        self.clock.advance(10 ** 6)
+        healthy = Jira()
+        result = self.call_mirror(fireflow, healthy)
+        self.assertEqual(result['deferred'], ['NET-12'])
+        self.assertEqual(healthy.transitions, [])
 
     def test_a_failed_transition_keeps_the_status_so_the_comment_is_never_doubled(self):
         self.seed('NET-12', 42)

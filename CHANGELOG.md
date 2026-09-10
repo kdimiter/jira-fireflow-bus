@@ -4,7 +4,12 @@
 
 - Published a clean source snapshot without private operational history or deployment data.
 - Removed automatic creation of broadly privileged ASMS accounts.
-- Made public installers source-only and required an independently verified connector digest.
+- Made the bus self-contained with direct Jira Cloud and FireFlow HTTPS API clients.
+- Added a ready `linux/amd64` Docker image and a one-file Docker installer with embedded checksums.
+- Added an SPDX SBOM, deterministic aggregate checksums, and a revision-bound release manifest.
+- Made native installation offline and independent of package indexes.
+- Accepted existing FireFlow object names in source and destination traffic items.
+- Added fail-safe upgrade checks for legacy secret references and preserved receipt lookup.
 - Bounded Jira intake scans and removed quadratic state lookups.
 - Preserved immutable issue ID and canonical operator attribution for approval audit events.
 - Added CodeQL, dependency review, secret scanning, Dependabot, and protected-branch checks.

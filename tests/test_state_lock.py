@@ -55,3 +55,26 @@ with bus.session(json.loads(sys.argv[1])) as (_, state, _, _):
             state.path.write_text(json.dumps(value))
             with self.assertRaises(ValueError):
                 State(state.path)
+
+    def test_state_file_must_be_private_and_cannot_be_a_link(self):
+        state = State(self.root / 'state' / 'sync.json')
+        state.record('NET-1', {'change_request_id': 1})
+        state.path.chmod(0o640)
+        with self.assertRaisesRegex(ValueError, 'owner-only'):
+            State(state.path)
+        state.path.chmod(0o600)
+        link = state.path.with_name('linked.json')
+        link.symlink_to(state.path)
+        with self.assertRaisesRegex(ValueError, 'owner-only'):
+            State(link)
+
+    def test_state_lock_must_be_private_and_cannot_be_a_hardlink(self):
+        path = self.root / 'state' / 'sync.json'
+        with State.lock(path):
+            pass
+        lock = path.with_name(path.name + '.lock')
+        hardlink = lock.with_name('other.lock')
+        hardlink.hardlink_to(lock)
+        with self.assertRaisesRegex(ValueError, 'private regular file'):
+            with State.lock(path):
+                pass

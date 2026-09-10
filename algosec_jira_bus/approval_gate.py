@@ -17,6 +17,11 @@ import tempfile
 from datetime import datetime, timezone
 
 from .approval import ApprovalError, request_hash
+from .config import private_json
+from .transport import https_origin
+
+
+MAX_APPROVAL_BYTES = 64 * 1024
 
 
 def issue_id(value):
@@ -27,7 +32,8 @@ def issue_id(value):
 
 def _protected(info, directory=False):
     kind = stat.S_ISDIR if directory else stat.S_ISREG
-    if not kind(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+    if (not kind(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077
+            or (not directory and info.st_nlink != 1)):
         raise ApprovalError('Approval storage must be owner-only and owned by this user')
 
 
@@ -52,7 +58,9 @@ class ApprovalLedger:
                 or not devices or any(not isinstance(d, str) or not d.strip() for d in devices):
             raise ApprovalError('Approval requires an explicit template and device list')
         origin = jira.config.get('base_url')
-        if not isinstance(origin, str) or not origin:
+        try:
+            origin = https_origin(origin)
+        except ValueError:
             raise ApprovalError('Jira origin is required to bind approval')
         issue = jira.read_issue(identifier, {field, 'status', 'summary'})
         if not isinstance(issue, dict) or issue.get('id') != identifier:
@@ -62,14 +70,15 @@ class ApprovalLedger:
         if not isinstance(status, dict) or status.get('name') != 'Approved':
             raise ApprovalError('Fresh Jira status must be Approved')
         binding = {'schema_version': 1, 'issue_id': identifier,
-                   'jira_origin': origin.rstrip('/'), 'field': field,
+                   'jira_origin': origin, 'field': field,
                    'request_hash': request_hash(fields.get(field)),
                    'template': template, 'devices': list(devices)}
         return copy.deepcopy(issue), binding
 
     def capture(self, jira, identifier, field, template, devices, *, operator):
         """Explicitly attest the currently Approved payload as a local pilot admin."""
-        if not isinstance(operator, str) or not operator.strip():
+        if (not isinstance(operator, str) or not operator.strip()
+                or len(operator.strip()) > 256):
             raise ApprovalError('Record the administrator performing approval capture')
         _, binding = self._fresh(jira, identifier, field, template, devices)
         record = {'binding': binding, 'captured_by': operator.strip(),
@@ -96,11 +105,8 @@ class ApprovalLedger:
         """Return the fresh issue only if status, content and deployment still match."""
         fresh, binding = self._fresh(jira, identifier, field, template, devices)
         try:
-            fd = os.open(self.directory / (issue_id(identifier) + '.json'),
-                         os.O_RDONLY | os.O_NOFOLLOW)
-            with os.fdopen(fd) as stream:
-                _protected(os.fstat(stream.fileno()))
-                record = json.load(stream)
+            record = private_json(self.directory / (issue_id(identifier) + '.json'),
+                                  os.getuid(), max_bytes=MAX_APPROVAL_BYTES)
         except (OSError, ValueError) as error:
             raise ApprovalError('A valid protected approval capture is required') from error
         saved = record.get('binding') if isinstance(record, dict) else None

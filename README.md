@@ -1,97 +1,96 @@
 # Jira–FireFlow Bus
 
-Outbound-only integration that reads approved network-access requests from Jira Cloud,
-creates change requests in AlgoSec FireFlow, and mirrors FireFlow progress back to Jira.
-The bus does not expose an inbound HTTP service.
-
-```text
-Jira Cloud  <--- outbound HTTPS --->  bus  <--- outbound HTTPS --->  FireFlow
-```
+Self-contained, outbound-only integration that reads approved network-access requests from
+Jira Cloud through its REST API, creates change requests through the AlgoSec FireFlow API,
+and mirrors FireFlow progress back to Jira. The bus exposes no inbound HTTP service.
 
 ```mermaid
 flowchart LR
-    J[Jira Cloud] <-->|HTTPS 443| B[Jira–FireFlow Bus]
-    B <-->|HTTPS 443| F[AlgoSec FireFlow]
+    J[Jira Cloud API] <-->|HTTPS 443| B[Jira–FireFlow Bus]
+    B <-->|HTTPS 443| F[AlgoSec FireFlow API]
     B --> S[(Private state)]
-    K[Secrets file] --> B
+    K[Protected secrets file] --> B
 ```
+
+## Install with Docker
+
+The GitHub Release contains one ready `linux/amd64` installer. It embeds the image and all
+runtime dependencies; the server does not clone the repository, build an image, or download
+Python packages.
+
+```sh
+# 1. Install Docker Engine and Python 3 first: https://docs.docker.com/engine/install/
+# 2. Download these two assets from release v0.2.0, then verify and run:
+sha256sum -c algosec-jira-bus-0.2.0-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.2.0-docker-amd64.run
+
+# 3. After the wizard, inspect the service:
+sudo docker ps --filter name=algosec-jira-bus
+sudo docker logs --tail 100 algosec-jira-bus
+```
+
+Download: [GitHub Release v0.2.0](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.0).
+The wizard validates both API connections and keeps `apply: false` unless the operator enters
+`START`.
+
+The adjacent `.sha256` file checks download integrity. Release reviewers can additionally use
+`SHA256SUMS`, `RELEASE-MANIFEST.json`, and the SPDX SBOM published with the release. The manifest
+binds the assets and Docker image ID to the exact source revision; it is a traceability record,
+not a detached digital signature.
+
+Secrets stay on the Linux host in
+`/opt/algosec-jira-docker/config/secrets.json` (`0600`, UID/GID `10001`). State is stored in
+`/opt/algosec-jira-docker/state`. The container runs as UID `10001`, with a read-only root
+filesystem, all Linux capabilities dropped, and `no-new-privileges`.
+
+For native systemd installation and complete Jira/FireFlow preparation, see the
+[step-by-step deployment guide](docs/DEPLOYMENT-GUIDE-uk.md).
 
 ## Security model
 
-- HTTPS is required for both Jira and ASMS origins.
-- Standard CA and hostname validation is used; an exact SHA-256 certificate pin is optional.
-- Runtime secrets stay outside the repository and container image.
-- Write mode is disabled until an operator runs the connectivity doctor and explicitly enables it.
+- Jira and FireFlow origins must be HTTPS.
+- Normal CA and hostname validation always remains enabled; an exact certificate SHA-256 pin
+  can add another check.
+- Runtime secrets, configuration, state, receipts, and logs are excluded from releases.
 - Templates, devices, and writable FireFlow fields are allowlisted.
-- Durable operation identifiers, receipts, and reconciliation guard against duplicate changes.
+- Durable operation identifiers, pre-submit receipts, and reconciliation limit duplicate
+  changes after uncertain API outcomes.
 - One poll scans at most `jira.scan_limit` issues and creates at most `max_per_pass` requests.
+- Write mode requires a successful connectivity doctor and explicit operator activation.
 
-The FireFlow transport adapter is distributed separately through an authorized channel and
-is not included in this public repository or its releases. Obtain its universal wheel and
-SHA-256 digest from your administrator.
+## Development and release builds
 
-## Development
-
-Python 3.11 or newer and Node.js 22 are supported.
+Python 3.11+ and Node.js 22 are supported. The Python runtime has no third-party dependency.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install /authorized/algosec_host_mcp-VERSION-py3-none-any.whl
 .venv/bin/python -m pip install -e .
 .venv/bin/python -m unittest discover -s tests
 
 cd forge
-npm ci
+npm ci --ignore-scripts
 npm test
 npm run check
 npm audit --audit-level=high
 ```
 
-## Quick installation
-
-Prepare Jira fields and dedicated Jira and ASMS accounts first. Obtain the private
-connector wheel and its expected SHA-256 digest through an authorized channel. Never
-commit the wheel or credentials.
-
-Build the source-only installer:
+Maintainers build release artifacts from a verified checkout:
 
 ```sh
-python3 scripts/build-installer.py --output dist/algosec-jira-bus-linux.run
-```
-
-Install it on Linux with the connector supplied separately:
-
-```sh
-sudo sh install.sh --mode native \
-  --bundle "$(pwd)/dist/algosec-jira-bus-linux.run" -- \
-  --connector-wheel /secure/algosec_host_mcp-VERSION-py3-none-any.whl \
-  --connector-sha256 EXPECTED_64_HEX_DIGEST
-```
-
-For Docker, build a private image archive on a trusted Linux amd64 host, then run its
-installer:
-
-```sh
+python3 scripts/build-installer.py \
+  --output dist/algosec-jira-bus-0.2.0-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-linux.run \
-  /secure/algosec_host_mcp-VERSION-py3-none-any.whl \
-  EXPECTED_64_HEX_DIGEST \
+  dist/algosec-jira-bus-0.2.0-linux.run \
   dist/algosec-jira-bus-docker-amd64.tar.gz
-
-sudo sh install.sh --mode docker -- \
-  --image-archive "$(pwd)/dist/algosec-jira-bus-docker-amd64.tar.gz" \
-  --image-sha256 EXPECTED_IMAGE_64_HEX_DIGEST
+python3 scripts/build-docker-installer.py \
+  --image dist/algosec-jira-bus-docker-amd64.tar.gz \
+  --output dist/algosec-jira-bus-0.2.0-docker-amd64.run
+python3 scripts/build-release-metadata.py \
+  --directory dist --version 0.2.0 --image algosec-jira-bus:0.2.0
 ```
-
-The interactive wizard keeps synchronization in dry-run unless an operator explicitly
-enters `START`. See the [step-by-step Linux and Docker deployment
-guide](docs/DEPLOYMENT-GUIDE-uk.md) and the [sanitized configuration
-example](examples/jira-sync-basic-structured.json).
-
-## Scope
 
 The bus submits and tracks a change request. Approval, planning, implementation, and policy
-decisions remain in FireFlow. Restrict Jira project permissions and JQL because eligible
-Jira issues can initiate FireFlow requests after the configured approval gate.
+decisions remain in FireFlow. Restrict Jira project permissions and JQL because eligible Jira
+issues can initiate FireFlow requests after the configured approval gate.
 
-Licensed under Apache-2.0. Security reports must follow [SECURITY.md](SECURITY.md).
+Licensed under Apache-2.0. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).

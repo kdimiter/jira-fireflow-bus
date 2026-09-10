@@ -37,10 +37,10 @@ class SetupDispatcherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.log.read_text().startswith('native\n'))
 
-    def test_docker_receives_explicit_bundle_and_helper_options(self):
+    def test_docker_uses_ready_image_and_forwards_only_helper_options(self):
         result = self.run_setup('--mode', 'docker', '--bundle', '/some path/release.run', '--', '--help')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.log.read_text(), 'docker\n--bundle\n/some path/release.run\n--help\n')
+        self.assertEqual(self.log.read_text(), 'docker\n--help\n')
 
     def test_no_implicit_deployment_when_selection_missing(self):
         result = self.run_setup(input='')

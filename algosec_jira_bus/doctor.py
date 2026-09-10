@@ -199,7 +199,7 @@ def jira(settings, state, client=None):
                             % (readable, len(issues), sum(counts),
                                ', '.join(sorted(table['columns'].values())))))
 
-    # A readable table is not necessarily a valid request for this installed connector.
+    # A readable table is not necessarily a valid FireFlow request for this bus release.
     fireflow_config = settings.get('fireflow') or {}
     for issue in issues:
         try:

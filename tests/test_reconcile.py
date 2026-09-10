@@ -1,10 +1,11 @@
 """Reconciliation repairs the bus's own state and reports everything else."""
 from pathlib import Path
 import json
+import os
 import tempfile
 import unittest
 
-from algosec_mcp.fireflow import digest
+from algosec_jira_bus.fireflow import digest
 
 from algosec_jira_bus.journal import Journal
 from algosec_jira_bus.queue import Failures
@@ -28,11 +29,15 @@ class Fireflow:
         return self.state / (digest([self.config['base_url'], operation_for(key)]) + suffix)
 
     def began(self, key):
-        self._name(key, '.started.json').write_text('{}')
+        path = self._name(key, '.started.json')
+        path.write_text('{}')
+        path.chmod(0o600)
 
     def finished(self, key, identifier=42):
         self.began(key)
-        self._name(key, '.result.json').write_text(json.dumps({'id': identifier}))
+        path = self._name(key, '.result.json')
+        path.write_text(json.dumps({'id': identifier}))
+        path.chmod(0o600)
 
 
 class Reconcile(unittest.TestCase):
@@ -60,8 +65,12 @@ class Reconcile(unittest.TestCase):
         self.state.data['intents']['NET-1'] = {'operation_id': operation, 'jira_issue_id': '1234'}
         self.state.save()
         prefix = digest([self.fireflow.config['base_url'], operation])
-        (self.fireflow.state / (prefix + '.started.json')).write_text('{}')
-        (self.fireflow.state / (prefix + '.result.json')).write_text(json.dumps({'id': 88}))
+        started = self.fireflow.state / (prefix + '.started.json')
+        result = self.fireflow.state / (prefix + '.result.json')
+        started.write_text('{}')
+        result.write_text(json.dumps({'id': 88}))
+        started.chmod(0o600)
+        result.chmod(0o600)
         self.failures.record('NET-1', 'create', 'lost response', retryable=False)
         report = self.call()
         restored = self.state.entries()['NET-1']
@@ -69,6 +78,23 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(restored['operation_id'], operation)
         self.assertEqual(restored['jira_issue_id'], '1234')
         self.assertIsNone(self.failures.entry('NET-1'))
+        self.assertEqual(report['healed'][0]['action'], 'restored')
+
+    def test_structured_intent_recovers_a_pre_upgrade_raw_origin_receipt(self):
+        operation = 'jira-abcdef012345-1234'
+        raw_origin = 'https://ASMS.Example.Test:443'
+        self.fireflow.receipt_origins = (self.fireflow.config['base_url'], raw_origin)
+        self.state.data['intents']['NET-1'] = {'operation_id': operation,
+                                              'jira_issue_id': '1234'}
+        self.state.save()
+        prefix = digest([raw_origin, operation])
+        for suffix, content in (('.started.json', '{}'),
+                                ('.result.json', json.dumps({'id': 88}))):
+            path = self.fireflow.state / (prefix + suffix)
+            path.write_text(content)
+            path.chmod(0o600)
+        report = self.call()
+        self.assertEqual(self.state.entries()['NET-1']['change_request_id'], 88)
         self.assertEqual(report['healed'][0]['action'], 'restored')
 
     def test_structured_started_without_result_is_parked(self):
@@ -101,6 +127,35 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(self.findings(report)['NET-12'], 'state_lost')
         self.assertEqual(self.state.entries()['NET-12']['change_request_id'], 42)
         self.assertEqual(report['healed'][0]['action'], 'restored')
+
+    def test_an_unsafe_result_receipt_is_never_used_to_restore_state(self):
+        for unsafe in ('symlink', 'hardlink', 'permissive', 'oversized'):
+            with self.subTest(unsafe=unsafe):
+                key = 'NET-' + str({'symlink': 21, 'hardlink': 22,
+                                    'permissive': 23, 'oversized': 24}[unsafe])
+                self.fireflow.began(key)
+                result = self.fireflow._name(key, '.result.json')
+                outside = self.root / (unsafe + '.json')
+                payload = {'id': 99}
+                if unsafe == 'oversized':
+                    payload['padding'] = 'x' * (1024 * 1024)
+                outside.write_text(json.dumps(payload))
+                outside.chmod(0o600)
+                if unsafe == 'symlink':
+                    result.symlink_to(outside)
+                elif unsafe == 'hardlink':
+                    os.link(outside, result)
+                else:
+                    result.write_text(outside.read_text())
+                    result.chmod(0o644 if unsafe == 'permissive' else 0o600)
+                report = self.call([key], heal=False)
+                self.assertEqual(self.findings(report)[key], 'unfinished')
+                self.assertNotIn(key, self.state.entries())
+
+    def test_a_dangling_started_receipt_fails_closed_as_unfinished(self):
+        started = self.fireflow._name('NET-25', '.started.json')
+        started.symlink_to(self.root / 'missing-receipt.json')
+        self.assertEqual(self.findings(self.call(['NET-25']))['NET-25'], 'unfinished')
 
     def test_without_heal_it_reports_the_same_thing_and_changes_nothing(self):
         self.fireflow.finished('NET-12', 42)

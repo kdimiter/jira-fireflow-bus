@@ -14,6 +14,30 @@ spec.loader.exec_module(wizard)
 
 
 class SetupWizardTests(unittest.TestCase):
+    def test_private_reader_rejects_symlink_hardlink_permissions_and_size(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source = root / 'source'
+            source.write_text('secret')
+            source.chmod(0o600)
+            self.assertEqual(wizard.read_private_text(source, os.getuid()), 'secret')
+            link = root / 'link'
+            link.symlink_to(source)
+            with self.assertRaises(ValueError):
+                wizard.read_private_text(link, os.getuid())
+            hardlink = root / 'hardlink'
+            os.link(source, hardlink)
+            with self.assertRaises(ValueError):
+                wizard.read_private_text(hardlink, os.getuid())
+            hardlink.unlink()
+            source.chmod(0o644)
+            with self.assertRaises(ValueError):
+                wizard.read_private_text(source, os.getuid())
+            source.write_text('x' * 1025)
+            source.chmod(0o600)
+            with self.assertRaisesRegex(ValueError, 'too large'):
+                wizard.read_private_text(source, os.getuid(), max_bytes=1024)
+
     def test_config_replaces_all_lab_bindings_without_mutating_template(self):
         template = json.loads((ROOT / 'examples/jira-sync-basic-structured.json').read_text())
         original = json.dumps(template)
@@ -83,14 +107,41 @@ class SetupWizardTests(unittest.TestCase):
             saved = {'jira': {'base_url': 'https://example.atlassian.net'}, 'mapping': {'structured': {'field': 'customfield_123'}}}
             (folder / 'bus.json').write_text(json.dumps(saved))
             (folder / 'secrets.env').write_text('TOKEN="keep"')
+            (folder / 'bus.json').chmod(0o600)
+            (folder / 'secrets.env').chmod(0o600)
             original_path = Path
             def paths(value):
                 return folder if value == '/etc/algosec-jira-bus' else original_path(value)
-            with patch.object(wizard, 'Path', side_effect=paths), patch.object(wizard.sys, 'platform', 'linux'), patch.object(wizard.sys, 'argv', ['setup', '--source', d]), patch.object(wizard.os, 'geteuid', return_value=0), patch.object(wizard.pwd, 'getpwnam', return_value=SimpleNamespace()), patch.object(wizard, 'finish_setup', return_value=0) as finish, patch.object(wizard.getpass, 'getpass') as secret:
+            account = SimpleNamespace(pw_uid=os.getuid(), pw_gid=os.getgid())
+            with patch.object(wizard, 'Path', side_effect=paths), patch.object(wizard.sys, 'platform', 'linux'), patch.object(wizard.sys, 'argv', ['setup', '--source', d]), patch.object(wizard.os, 'geteuid', return_value=0), patch.object(wizard.pwd, 'getpwnam', return_value=account), patch.object(wizard, 'finish_setup', return_value=0) as finish, patch.object(wizard.getpass, 'getpass') as secret:
                 self.assertEqual(wizard.main(), 0)
                 finish.assert_called_once()
                 secret.assert_not_called()
             self.assertEqual((folder / 'secrets.env').read_text(), 'TOKEN="keep"')
+
+    def test_main_refuses_legacy_secret_reference_before_resume(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d)
+            saved = {'jira': {'base_url': 'https://example.atlassian.net',
+                              'token_ref': 'keyring:jira/token'},
+                     'mapping': {'structured': {'field': 'customfield_123'}}}
+            (folder / 'bus.json').write_text(json.dumps(saved))
+            (folder / 'bus.json').chmod(0o600)
+            original_path = Path
+            def paths(value):
+                return folder if value == '/etc/algosec-jira-bus' else original_path(value)
+            account = SimpleNamespace(pw_uid=os.getuid(), pw_gid=os.getgid())
+            with patch.object(wizard, 'Path', side_effect=paths), \
+                 patch.object(wizard.sys, 'platform', 'linux'), \
+                 patch.object(wizard.sys, 'argv', ['setup', '--source', d]), \
+                 patch.object(wizard.os, 'geteuid', return_value=0), \
+                 patch.object(wizard.pwd, 'getpwnam', return_value=account), \
+                 patch.object(wizard, 'finish_setup') as finish, \
+                 patch.object(wizard.getpass, 'getpass') as secret:
+                with self.assertRaisesRegex(ValueError, 'env:NAME'):
+                    wizard.main()
+                finish.assert_not_called()
+                secret.assert_not_called()
 
     def test_start_occurs_only_after_doctor_and_config_write(self):
         events = []

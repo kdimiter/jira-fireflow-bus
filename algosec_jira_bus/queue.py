@@ -4,7 +4,7 @@ A poll that hits a network error must not silently drop the event: the next pass
 skip the issue as already seen, or retry a change nobody is allowed to retry. So every
 per-issue failure lands in a queue with an attempt count and a time it is next due.
 
-**Which failures may be tried again is not a judgement call.** The connector's contract is
+**Which failures may be tried again is not a judgement call.** The bus contract is
 that a mutation whose outcome is unknown is never repeated automatically, and its FireFlow
 adapter enforces this itself: it writes a ``.started.json`` receipt *before* it sends
 anything, and refuses a second call with the same operation id. That receipt is the signal
@@ -50,22 +50,41 @@ def started_receipt(fireflow, operation_id):
     the operation id, so it identifies the attempt independently of this process.
     """
     try:
-        from algosec_mcp.fireflow import digest
+        from .fireflow import digest
         key = digest([fireflow.config['base_url'], operation_id])
         return fireflow.state / (key + '.started.json')
     except Exception:
         return None
 
 
+def receipt_pairs(fireflow, operation_id):
+    """Receipt pairs for the canonical and any preserved pre-upgrade origin."""
+    try:
+        from .fireflow import digest
+        origins = getattr(fireflow, 'receipt_origins',
+                          (fireflow.config['base_url'],))
+        keys = tuple(dict.fromkeys(digest([origin, operation_id]) for origin in origins))
+        return tuple((fireflow.state / (key + '.started.json'),
+                      fireflow.state / (key + '.result.json')) for key in keys)
+    except Exception:
+        return ()
+
+
+def receipt_candidates(fireflow, operation_id):
+    """All files that can prove an attempt began or completed."""
+    return tuple(path for pair in receipt_pairs(fireflow, operation_id) for path in pair)
+
+
 def sent_anything(fireflow, operation_id):
     """True when the adapter had already begun this mutation, so it must not be repeated."""
-    path = started_receipt(fireflow, operation_id)
+    paths = receipt_candidates(fireflow, operation_id)
     # No receipt directory to consult means no proof that nothing was sent. Treat the
     # outcome as unknown, which is the side that never retries.
-    if path is None:
+    if not paths:
         return True
     try:
-        return path.exists()
+        from .fireflow import receipt_exists
+        return any(receipt_exists(path) for path in paths)
     except OSError:
         return True
 

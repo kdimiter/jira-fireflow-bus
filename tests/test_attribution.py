@@ -2,6 +2,11 @@ import unittest
 from algosec_jira_bus.sync import jira_attribution, MappingError
 
 class AttributionTests(unittest.TestCase):
+    def test_equivalent_origin_is_canonicalized_in_the_human_link(self):
+        text = jira_attribution({'key': 'NET-1', 'fields': {}},
+                                'https://EXAMPLE.atlassian.net:443/')
+        self.assertIn('URL: https://example.atlassian.net/browse/NET-1', text)
+
     def test_creator_and_reporter_distinct(self):
         text=jira_attribution({'key':'NET-5','fields':{'creator':{'displayName':'Test Vasia','accountId':'123'},'reporter':{'displayName':'Other','accountId':'456','emailAddress':'other@example.org'}}},'https://example.atlassian.net/')
         self.assertIn('Creator: Test Vasia',text)

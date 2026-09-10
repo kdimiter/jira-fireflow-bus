@@ -10,9 +10,85 @@ import pwd
 import re
 import subprocess
 import sys
+import stat
 import tempfile
 import uuid
 from urllib.parse import urlsplit
+
+from algosec_jira_bus.config import private_json
+
+
+MAX_PRIVATE_TEXT_BYTES = 1024 * 1024
+
+
+def validate_secret_references(settings):
+    """Require references supported by the self-contained headless runtime."""
+    references = []
+    if isinstance(settings, dict):
+        jira = settings.get('jira')
+        fireflow = settings.get('fireflow')
+        if isinstance(jira, dict) and 'token_ref' in jira:
+            references.append(('jira.token_ref', jira.get('token_ref')))
+        if isinstance(fireflow, dict):
+            references.extend((('fireflow.' + name, fireflow.get(name))
+                               for name in ('password_ref', 'session_ref')
+                               if name in fireflow))
+    incompatible = [name for name, value in references
+                    if not isinstance(value, str)
+                    or not re.fullmatch(r'env:[A-Za-z_][A-Za-z0-9_]{0,127}', value)]
+    if incompatible:
+        raise ValueError('Existing configuration uses unsupported secret references (%s). '
+                         'Before upgrading, move those secrets to the private secrets file '
+                         'and change each reference to env:NAME.' % ', '.join(incompatible))
+
+
+def _read_text(path, *, max_bytes, expected_uid=None):
+    if (type(max_bytes) is not int or max_bytes < 1 or
+            (expected_uid is not None and type(expected_uid) is not int)):
+        raise ValueError('Invalid file reader limits')
+    flags = (os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) |
+             getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+    try:
+        descriptor = os.open(Path(path), flags)
+    except FileNotFoundError:
+        raise
+    except OSError:
+        raise ValueError('Expected an owner-only regular file') from None
+    try:
+        information = os.fstat(descriptor)
+        if (not stat.S_ISREG(information.st_mode) or information.st_nlink != 1 or
+                (expected_uid is not None and
+                 (information.st_uid != expected_uid or information.st_mode & 0o077))):
+            raise ValueError('Expected a safe regular file')
+        if information.st_size > max_bytes:
+            raise ValueError('Private file is too large')
+        chunks = []
+        remaining = max_bytes + 1
+        while remaining:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b''.join(chunks)
+        if len(raw) > max_bytes:
+            raise ValueError('Private file is too large')
+    finally:
+        os.close(descriptor)
+    try:
+        return raw.decode('utf-8')
+    except UnicodeDecodeError:
+        raise ValueError('Private file must contain valid UTF-8 text') from None
+
+
+def read_private_text(path, expected_uid, *, max_bytes=MAX_PRIVATE_TEXT_BYTES):
+    """Read a bounded owner-only regular file through a no-follow descriptor."""
+    return _read_text(path, max_bytes=max_bytes, expected_uid=expected_uid)
+
+
+def read_regular_text(path, *, max_bytes=MAX_PRIVATE_TEXT_BYTES):
+    """Read a bounded non-link source file without requiring private permissions."""
+    return _read_text(path, max_bytes=max_bytes)
 
 
 def ask(label, default=''):
@@ -167,7 +243,8 @@ def finish_setup(config, settings, account):
 
 def finish_container(config, settings, account):
     """Validate inside an isolated container; activation only changes saved apply."""
-    secrets = json.loads((config.parent / 'secrets.json').read_text())
+    secrets = private_json(config.parent / 'secrets.json', account.pw_uid,
+                           max_bytes=64 * 1024)
     if set(secrets) != {'JIRA_API_TOKEN', 'ASMS_API_PASSWORD'} or any(
             not isinstance(v, str) or not v or any(c in v for c in '\r\n\x00') for v in secrets.values()):
         raise ValueError('Invalid container secrets.json')
@@ -196,18 +273,28 @@ def main():
     folder = Path('/etc/algosec-jira-bus')
     config = folder / 'bus.json'
     print('AlgoSec Jira integration setup. Secrets are not printed.')
-    print('Guide: /opt/algosec-jira-bus/docs/DEPLOYMENT-GUIDE-uk.md')
+    print('Guide: https://github.com/kdimiter/jira-fireflow-bus/blob/main/docs/DEPLOYMENT-GUIDE-uk.md')
     print('Jira: deploy Forge, add Network Access and workflow before field discovery.')
     print('Dedicated Jira and ASMS API accounts must already be prepared.')
     print('Grant only the rights validated for this deployment; the wizard does not grant roles.')
     print('Use a Jira token supported by this tenant-origin client; scoped gateway tokens are not supported by this wizard.')
-    existing = json.loads(config.read_text()) if config.exists() else {}
+    try:
+        existing = private_json(config, account.pw_uid)
+    except FileNotFoundError:
+        existing = {}
+    validate_secret_references(existing)
     configured = existing.get('mapping', {}).get('structured') and 'YOUR-' not in existing.get('jira', {}).get('base_url', '')
     if configured:
         print('Existing configuration detected; preserving it and secrets.')
         return finish(config, existing, account)
     secrets_path = folder / ('secrets.json' if args.container else 'secrets.env')
-    if secrets_path.exists() and any(line.strip() and not line.lstrip().startswith('#') for line in secrets_path.read_text().splitlines()):
+    try:
+        existing_secrets = read_private_text(secrets_path, account.pw_uid,
+                                             max_bytes=64 * 1024)
+    except FileNotFoundError:
+        existing_secrets = ''
+    if any(line.strip() and not line.lstrip().startswith('#')
+           for line in existing_secrets.splitlines()):
         raise ValueError('Existing secrets.env preserved. Complete bus.json using the guide, then rerun; wizard will not replace existing credentials.')
     url = origin(ask('Jira site URL'))
     email = ask('Jira API account email')
@@ -227,14 +314,22 @@ def main():
         fields[k] = choose_field(available, name, 'string')
     ff_url, ff_user, password, pin = collect_fireflow_credentials()
     devices = [v.strip() for v in ask('Device tree names (comma-separated)').split(',') if v.strip()]
-    template = json.loads((args.source / 'examples/jira-sync-basic-structured.json').read_text())
+    template = json.loads(read_regular_text(
+        args.source / 'examples/jira-sync-basic-structured.json'))
     settings = build_config(template, url, email, project, worktype, ff_url, ff_user, devices, pin, fields)
     secrets = (json.dumps({'JIRA_API_TOKEN': token, 'ASMS_API_PASSWORD': password}) + '\n' if args.container
                else secret_line('JIRA_API_TOKEN', token) + secret_line('ASMS_API_PASSWORD', password))
     # Preserve original installer placeholders, too; never replace silently on a rerun.
     for p in (config, secrets_path):
-        if p.exists() and not p.with_suffix(p.suffix + '.before-wizard').exists():
-            write_private(p.with_suffix(p.suffix + '.before-wizard'), p.read_text(), account.pw_uid, account.pw_gid)
+        try:
+            original = read_private_text(p, account.pw_uid)
+        except FileNotFoundError:
+            continue
+        backup = p.with_suffix(p.suffix + '.before-wizard')
+        try:
+            backup.lstat()
+        except FileNotFoundError:
+            write_private(backup, original, account.pw_uid, account.pw_gid)
     write_private(secrets_path, secrets, account.pw_uid, account.pw_gid)
     write_private(config, json.dumps(settings, indent=2, ensure_ascii=False) + '\n', account.pw_uid, account.pw_gid)
     return finish(config, settings, account)

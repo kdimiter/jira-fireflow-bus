@@ -38,7 +38,7 @@ ExecStart=/opt/algosec-jira-bus/venv/bin/algosec-jira-bus \
 # suitable for a headless server without a usable keyring. Mode 0600, owned by this account.
 EnvironmentFile=-/etc/algosec-jira-bus/secrets.env
 
-# systemd creates this 0700 and owned by User=, which is exactly what the connector's
+# systemd creates this 0700 and owned by User=, which is exactly what the bus runtime's
 # secure_dir demands. Do not point the state directory at a home directory: ProtectHome
 # below makes it unreadable, and the failure is confusing.
 StateDirectory=algosec-jira-bus

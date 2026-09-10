@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from algosec_mcp.runtime import Audit
+from algosec_jira_bus.runtime import Audit
 from algosec_jira_bus.journal import KINDS, Journal, Silent
 
 
@@ -68,15 +68,9 @@ class JournalFile(unittest.TestCase):
 
 
 class Coupling(unittest.TestCase):
-    """The journal reuses the connector's rotation and locking on purpose.
+    """The journal shares the bus-owned bounded, locked append implementation."""
 
-    It reaches for ``Audit._append`` to do it. That is a private name in another package,
-    pinned by version rather than by contract, so this test states the dependency out loud:
-    if the connector ever renames it, the failure is one clear assertion here instead of an
-    AttributeError from inside a poll on a production host.
-    """
-
-    def test_the_connector_still_offers_the_append_path_the_journal_relies_on(self):
+    def test_the_bus_runtime_offers_the_append_path_the_journal_relies_on(self):
         self.assertTrue(callable(getattr(Audit, '_append', None)),
                         'Audit._append is gone: give Journal its own append or add a public one')
         self.assertTrue(callable(getattr(Audit, '_rotate', None)))

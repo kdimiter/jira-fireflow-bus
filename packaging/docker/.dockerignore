@@ -1,0 +1,13 @@
+**
+!pyproject.toml
+!LICENSE
+!algosec_jira_bus/
+!algosec_jira_bus/**
+!scripts/
+!scripts/setup_wizard.py
+!examples/
+!examples/jira-sync-basic-structured.json
+!packaging/
+!packaging/docker/
+!packaging/docker/Dockerfile
+!packaging/docker/scheduler.py

@@ -11,9 +11,31 @@ from unittest.mock import Mock, patch
 spec = importlib.util.spec_from_file_location('container_scheduler', Path(__file__).resolve().parents[1] / 'packaging/docker/scheduler.py')
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class DockerRuntimeTests(unittest.TestCase):
+    def test_image_contains_only_the_self_contained_bus_runtime(self):
+        dockerfile = (ROOT / 'packaging/docker/Dockerfile').read_text()
+        self.assertIn('python:3.11.16-alpine3.23@sha256:', dockerfile)
+        self.assertIn("apk upgrade --no-cache 'libuuid=2.41.6-r1'", dockerfile)
+        self.assertIn('pip install --no-cache-dir --no-deps --no-build-isolation .', dockerfile)
+        self.assertIn('/usr/local/lib/python3.11/site-packages/pip', dockerfile)
+        self.assertIn('/usr/local/lib/python3.11/site-packages/setuptools', dockerfile)
+        self.assertIn('/usr/local/lib/python3.11/site-packages/wheel', dockerfile)
+        self.assertIn('/usr/local/lib/python3.11/site-packages/packaging', dockerfile)
+        self.assertNotIn('vendor/', dockerfile)
+        self.assertNotIn('COPY . .', dockerfile)
+        for excluded in ('.git', 'tests', 'forge', 'docs'):
+            self.assertNotIn('COPY ' + excluded, dockerfile)
+        self.assertIn('USER 10001:10001', dockerfile)
+        self.assertNotIn('EXPOSE', dockerfile)
+
+    def test_installer_applies_runtime_resource_limits(self):
+        helper = (ROOT / 'packaging/docker/install-docker.sh').read_text()
+        for expected in ('--pids-limit 128', '--memory 512m', '--memory-swap 512m'):
+            self.assertIn(expected, helper)
+
     def test_private_json_secrets_preserve_shell_metacharacters(self):
         with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, {}, clear=True):
             p = Path(d) / 'secrets.json'

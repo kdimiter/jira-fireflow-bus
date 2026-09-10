@@ -18,10 +18,11 @@ exist and one it could not reach with the same error, so a read that fails is re
 ``unreadable`` and never as missing. Saying a request vanished when the link was merely
 down would be worse than saying nothing.
 """
-import json
+import os
 
+from .config import private_json
 from .journal import Silent
-from .queue import Failures, started_receipt
+from .queue import Failures, receipt_pairs, started_receipt
 from .sync import change_request_id, same_status, status_of
 
 
@@ -38,18 +39,39 @@ def operation_for(key):
 
 def _load(path):
     try:
-        return json.loads(path.read_text())
+        return private_json(path, os.getuid())
     except (OSError, ValueError, AttributeError):
         return None
+
+
+def _present(path):
+    """Treat an occupied but unsafe receipt path as a begun operation."""
+    if path is None:
+        return False
+    try:
+        private_json(path, os.getuid())
+        return True
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, AttributeError):
+        return True
 
 
 def receipts(fireflow, key, operation=None):
     """What the adapter's receipts say happened for this issue."""
     operation = operation or operation_for(key)
-    started, result = started_receipt(fireflow, operation), result_receipt(fireflow, operation)
-    began = bool(started and started.exists())
-    body = _load(result) if result else None
-    return {'began': began, 'finished': body is not None, 'response': body}
+    pairs = receipt_pairs(fireflow, operation)
+    if not pairs:
+        return {'began': False, 'finished': False, 'response': None}
+    for started, result in pairs:
+        began = _present(started)
+        result_present = _present(result)
+        body = _load(result) if result_present else None
+        if body is not None:
+            return {'began': True, 'finished': True, 'response': body}
+        if began or result_present:
+            return {'began': True, 'finished': False, 'response': None}
+    return {'began': False, 'finished': False, 'response': None}
 
 
 def reconcile(keys, fireflow, state, failures=None, heal=True, journal=None, log=print):
