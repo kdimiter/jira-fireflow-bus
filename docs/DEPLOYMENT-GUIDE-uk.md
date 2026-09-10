@@ -46,6 +46,10 @@ cd ..
 sh scripts/setup-forge.sh
 ```
 
+Рекомендований `prepare-jira.sh` створює або знаходить **company-managed** project і додає
+потрібні об'єкти через Jira API. Якщо політика замовника вимагає ручного **team-managed**
+project, використайте візуальний додаток А після встановлення Forge app.
+
 ### AlgoSec FireFlow API account
 
 Для нового середовища `prepare-fireflow.sh` через HTTPS API створює `jira_bus_api` з правами,
@@ -99,6 +103,8 @@ sha256sum -c algosec-jira-bus-0.2.1-docker-amd64.run.sha256
 sudo sh algosec-jira-bus-0.2.1-docker-amd64.run
 ```
 
+![Перевірка та запуск готового Docker installer із синтетичними адресами](screenshots/21-docker-installer.png)
+
 Файл `.sha256` перевіряє цілісність завантаження. Для повної перевірки release також
 публікуються `SHA256SUMS`, `RELEASE-MANIFEST.json` і SPDX SBOM. Manifest зв'язує assets та
 Docker image ID з точним Git revision; це запис для відстеження походження, а не окремий
@@ -139,6 +145,8 @@ company-managed project, Network Access, три result fields та окремі 
 ```sh
 sudo bus_conf
 ```
+
+![Поля bus_conf і TLS на синтетичному прикладі](screenshots/22-bus-conf.png)
 
 Майстер щоразу повторно запитує Jira URL, API email/token, ASMS/FireFlow URL та FireFlow API
 user/password. Введіть актуальні значення, навіть якщо змінюєте лише один параметр. Майстер не
@@ -241,3 +249,60 @@ Native secrets: `/etc/algosec-jira-bus/secrets.env`, режим `0600`, влас
 секрети у відповідний приватний secrets-файл і використовуйте лише посилання
 `env:JIRA_API_TOKEN`, `env:ASMS_API_PASSWORD` або інші `env:NAME`: installer відмовиться
 зупиняти чинний сервіс, якщо конфігурація містить несумісний спосіб зберігання секретів.
+
+## Додаток А. Візуальна ручна підготовка team-managed Jira
+
+Цей додаток потрібен лише тоді, коли Jira administrator свідомо обирає ручний
+**team-managed** project замість автоматичного `prepare-jira.sh`. Назви пунктів Jira можуть
+змінюватися. На знімках залишені стандартні назви об'єктів; tenant, email, ім'я та аватари
+приховані. Значення `Network Access`, `NAC`, `AlgoSec Integration` і `NET` є прикладами.
+
+### А.1. Створіть project
+
+У Jira відкрийте **Spaces → Create space**, виберіть Kanban і натисніть **Use template**.
+
+![Вибір Kanban template](screenshots/14-create-space-template.png)
+
+Виберіть **Team-managed**. Для production оберіть доступ відповідно до політики замовника;
+для інтеграційного project зазвичай використовується **Private**.
+
+![Вибір Team-managed](screenshots/15-space-management-type.png)
+
+Вкажіть власні Name і Key. Не копіюйте `NAC`, якщо цей key уже використовується.
+
+![Назва, key і доступ на синтетичному прикладі](screenshots/16-space-name-key-access.png)
+
+### А.2. Залиште потрібний work type
+
+На кроці **Work types** залиште або створіть `Network Access`. Sample work items можна
+вимкнути, щоб тестові записи не потрапили під JQL шини.
+
+![Вибір Network Access](screenshots/17-space-work-types.png)
+
+Початкові стандартні статуси можна залишити лише на час створення project.
+
+![Початкові Jira статуси](screenshots/18-space-initial-statuses.png)
+
+До запуску шини додайте статуси `Plan`, `Approve`, `Review`, `Implement`, `Validate`,
+`Match`, `Rejected` і `Cancelled`, залишивши також `To Do` та `Done`. Створіть переходи
+з такими самими назвами з будь-якого статусу до відповідного цільового статусу. Саме ці
+назви використовує `examples/jira-sync-basic-structured.json`; без них зворотне оновлення
+статусів із FireFlow не працюватиме. Якщо team-managed project не дозволяє відтворити цю
+схему, використайте company-managed project і `prepare-jira.sh`.
+
+### А.3. Перевірте Details і Access
+
+Відкрийте **Space settings → Details** і звірте Name та Key з тим, що вводитимете у
+`bus_conf`. Особисті дані на наступному знімку заблюрені.
+
+![Details із заблюреним tenant і власником](screenshots/01-project-details-redacted.png)
+
+У **Space settings → Access** додайте технічний Jira account. Йому потрібні Browse, Edit,
+Add Comments і Transition для цільового work type; глобальні Jira administrator права для
+runtime не потрібні.
+
+![Access із заблюреними ім'ям, email, tenant і аватарами](screenshots/02-project-access-redacted.png)
+
+Після цього встановіть Forge field, додайте три текстові result fields, зробіть structured
+field обов'язковим і запустіть installer. `doctor` має побачити project, work type, усі поля
+та дозволені transitions до введення `START`.
