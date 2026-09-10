@@ -279,9 +279,16 @@ Native secrets: `/etc/algosec-jira-bus/secrets.env`, режим `0600`, влас
 
 ![Вибір Network Access](screenshots/17-space-work-types.png)
 
-Початкові стандартні статуси можна залишити до налаштування відображення FireFlow.
+Початкові стандартні статуси можна залишити лише на час створення project.
 
 ![Початкові Jira статуси](screenshots/18-space-initial-statuses.png)
+
+До запуску шини додайте статуси `Plan`, `Approve`, `Review`, `Implement`, `Validate`,
+`Match`, `Rejected` і `Cancelled`, залишивши також `To Do` та `Done`. Створіть переходи
+з такими самими назвами з будь-якого статусу до відповідного цільового статусу. Саме ці
+назви використовує `examples/jira-sync-basic-structured.json`; без них зворотне оновлення
+статусів із FireFlow не працюватиме. Якщо team-managed project не дозволяє відтворити цю
+схему, використайте company-managed project і `prepare-jira.sh`.
 
 ### А.3. Перевірте Details і Access
 
