@@ -41,6 +41,12 @@ class ReleaseMetadataTests(unittest.TestCase):
             '#!/bin/sh\nexit 0\n')
         (self.root / 'packaging/docker/stage-config.py').write_bytes(
             (ROOT / 'packaging/docker/stage-config.py').read_bytes())
+        (self.root / 'packaging/docker/bus_conf').write_bytes(
+            (ROOT / 'packaging/docker/bus_conf').read_bytes())
+        (self.root / 'scripts').mkdir()
+        for name in ('prepare-fireflow.sh', 'prepare-jira.sh'):
+            (self.root / 'scripts' / name).write_bytes(
+                (ROOT / 'scripts' / name).read_bytes())
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
         subprocess.run(
             ['git', '-C', str(self.root), 'config', 'user.email', 'release@example.invalid'],

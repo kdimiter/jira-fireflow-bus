@@ -285,7 +285,12 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
             'algosec-jira-bus-docker-amd64.tar.gz.sha256',
             'install-docker.sh',
             'stage-config.py',
+            'bus_conf',
+            'prepare-fireflow.sh',
+            'prepare-jira.sh',
         })
+        self.assertEqual((target / 'bus_conf').read_bytes(),
+                         (ROOT / 'packaging/docker/bus_conf').read_bytes())
 
     def test_one_file_installer_bootstraps_supported_linux_dependencies(self):
         header = self.bundle.read_bytes().split(docker_builder.MARKER, 1)[0].decode()

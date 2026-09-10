@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MARKER = b'\n__ALGOSEC_DOCKER_PAYLOAD__\n'
 IMAGE_NAME = 'algosec-jira-bus-docker-amd64.tar.gz'
 STAGER_NAME = 'stage-config.py'
+BUS_CONF_NAME = 'bus_conf'
+PREPARE_NAMES = ('prepare-fireflow.sh', 'prepare-jira.sh')
 HOST_SETUP = r'''if [ "${1:-}" != "--help" ] && [ "${1:-}" != "--extract" ]; then
     [ "$(uname -s)" = Linux ] || { echo 'Linux host required.' >&2; exit 1; }
     [ "$(id -u)" -eq 0 ] || { echo 'Run the installer with sudo.' >&2; exit 1; }
@@ -63,14 +65,14 @@ EOF
 fi
 '''
 EXTRACTOR = r'''
-import hashlib, io, json, pathlib, shutil, subprocess, sys, tarfile, tempfile
+import hashlib, io, json, os, pathlib, shutil, subprocess, sys, tarfile, tempfile
 bundle = pathlib.Path(sys.argv[1]).read_bytes()
 payload = bundle.split(b'\n__ALGOSEC_DOCKER_PAYLOAD__\n', 1)[1]
 if hashlib.sha256(payload).hexdigest() != '__PAYLOAD_DIGEST__':
     raise SystemExit('Docker installer checksum mismatch; nothing extracted.')
 args = sys.argv[2:]
 if args == ['--help']:
-    print('Usage: sudo sh algosec-jira-bus-0.2.1-docker-amd64.run [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]\n       sh algosec-jira-bus-0.2.1-docker-amd64.run --extract NEW_DIRECTORY\nContains the ready linux/amd64 image; the target host does not build software.')
+    print('Usage: sudo sh algosec-jira-bus-0.2.1-docker-amd64.run [--prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]\n       sh algosec-jira-bus-0.2.1-docker-amd64.run --extract NEW_DIRECTORY\nContains the ready linux/amd64 image; the target host does not build software.')
     raise SystemExit(0)
 extract_only = bool(args and args[0] == '--extract')
 if extract_only and len(args) != 2:
@@ -104,9 +106,15 @@ try:
     else:
         image = destination / '__IMAGE_NAME__'
         image_digest = manifest['files']['__IMAGE_NAME__']
-        result = subprocess.run(['sh', str(destination / 'install-docker.sh'),
-                                 '--image-archive', str(image),
-                                 '--image-sha256', image_digest, *args])
+        interactive = '--config-file' not in args and '--prepare-only' not in args
+        terminal = os.fdopen(os.dup(3), 'rb', buffering=0) if interactive else None
+        try:
+            result = subprocess.run(['sh', str(destination / 'install-docker.sh'),
+                                     '--image-archive', str(image),
+                                     '--image-sha256', image_digest, *args], stdin=terminal)
+        finally:
+            if terminal is not None:
+                terminal.close()
         raise SystemExit(result.returncode)
 finally:
     if not extract_only:
@@ -123,7 +131,7 @@ def installer_header(payload_digest):
         '#!/bin/sh\nset -eu\n' + HOST_SETUP +
         'command -v python3 >/dev/null 2>&1 || '
         '{ echo "Python 3 required to unpack installer" >&2; exit 1; }\n'
-        'exec python3 - "$0" "$@" <<\'ALGOSEC_PYTHON\'\n' + extractor +
+        'exec python3 - "$0" "$@" 3<&0 <<\'ALGOSEC_PYTHON\'\n' + extractor +
         '\nALGOSEC_PYTHON\n').encode()
 
 
@@ -134,7 +142,10 @@ def build(image: Path, helper: Path, output: Path, revision=None):
         IMAGE_NAME: image.read_bytes(),
         'install-docker.sh': helper.read_bytes(),
         STAGER_NAME: (ROOT / 'packaging/docker' / STAGER_NAME).read_bytes(),
+        BUS_CONF_NAME: (ROOT / 'packaging/docker' / BUS_CONF_NAME).read_bytes(),
     }
+    for name in PREPARE_NAMES:
+        files[name] = (ROOT / 'scripts' / name).read_bytes()
     image_digest = hashlib.sha256(files[IMAGE_NAME]).hexdigest()
     files[IMAGE_NAME + '.sha256'] = (image_digest + '  ' + IMAGE_NAME + '\n').encode()
     if revision is None:

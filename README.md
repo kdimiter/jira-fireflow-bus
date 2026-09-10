@@ -26,10 +26,30 @@ sudo sh algosec-jira-bus-0.2.1-docker-amd64.run
 # 2. Re-run the configuration wizard after deployment if needed:
 sudo bus_conf
 
+# Refresh only a renewed/replaced FireFlow certificate pin:
+sudo bus_conf --refresh-certificate
+
 # 3. Inspect the service:
 sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
 ```
+
+For a new environment, install the ready image and the two host preparation scripts first:
+
+```sh
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run --prepare-only
+sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
+# Install the repository Forge app once, then prepare Jira:
+sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --project-key ALGO --apply
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run
+```
+
+The `.sh` helpers run through the bundled Docker image and do not use host Python.
+`prepare-fireflow.sh` uses ASMS HTTPS APIs, so no SSH access to the AlgoSec host is required.
+It creates `jira_bus_api` with ASMS Admin, FireFlow Admin and `ALL_FIREWALLS:Standard`, then
+shows the generated password once. `prepare-jira.sh` creates or discovers the company-managed
+project, Network Access issue type, three result fields, and dedicated screen schemes. Install
+the repository Forge app first because Jira REST cannot create its Forge-owned object field.
 
 On a clean Ubuntu/Debian or RHEL/Rocky/AlmaLinux host, the verified `.run` installer
 installs Python 3 and Docker Engine from the OS and official Docker repositories when they are
@@ -47,7 +67,7 @@ of the CA chain and the hostname or IP address. Enable it only for a private/sel
 FireFlow certificate or an IP-based connection that cannot pass normal validation. In this
 exception mode, CA and hostname checks are replaced by pin-only verification of the exact server
 certificate SHA-256 fingerprint. A different certificate is rejected; after certificate renewal
-or replacement, run `sudo bus_conf` and approve the new fingerprint.
+or replacement, run `sudo bus_conf --refresh-certificate` and approve the new fingerprint.
 
 For an unattended production install, prepare owner-only files on the Linux server and pass
 them to the same installer. No ChatGPT, agent, MCP service, repository checkout, compiler, or

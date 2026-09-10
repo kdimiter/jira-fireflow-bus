@@ -51,6 +51,45 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('issuetype = 123', c['jira']['jql'])
         self.assertEqual(c['fireflow']['allowed_devices'], ['fw_demo'])
 
+    def test_trust_server_certificate_enables_pin_only_tls(self):
+        template = json.loads((ROOT / 'examples/jira-sync-basic-structured.json').read_text())
+        fields = dict(structured='customfield_900', id='customfield_901',
+                      status='customfield_902', owner='customfield_903')
+        c = wizard.build_config(
+            template, 'https://example.atlassian.net', 'api@example.com', 'DEMO',
+            '123', 'https://192.0.2.10', 'api', ['fw_demo'], 'A' * 64, fields,
+            trust_server_certificate=True, existing_ca_file='/etc/old-ca.pem')
+        self.assertTrue(c['fireflow']['tls_pin_only'])
+        self.assertEqual(c['fireflow']['tls_certificate_sha256'], 'a' * 64)
+        self.assertNotIn('ca_file', c['fireflow'])
+
+    def test_trust_server_certificate_requires_a_pin(self):
+        template = json.loads((ROOT / 'examples/jira-sync-basic-structured.json').read_text())
+        fields = dict(structured='customfield_900', id='customfield_901',
+                      status='customfield_902', owner='customfield_903')
+        with self.assertRaisesRegex(ValueError, 'requires'):
+            wizard.build_config(
+                template, 'https://example.atlassian.net', 'api@example.com',
+                'DEMO', '123', 'https://192.0.2.10', 'api', ['fw_demo'], '',
+                fields, trust_server_certificate=True)
+
+    def test_certificate_refresh_preserves_apply_and_requires_explicit_trust(self):
+        settings = {'apply': True, 'fireflow': {'base_url': 'https://192.0.2.10'}}
+        account = SimpleNamespace(pw_uid=1, pw_gid=1)
+        with patch.object(wizard, 'capture_certificate_sha256', return_value='a' * 64), \
+             patch.object(wizard, 'ask', return_value='TRUST'), \
+             patch.object(wizard, 'write_private') as write, \
+             patch.object(wizard, 'private_json', return_value={
+                 'JIRA_API_TOKEN': 'x', 'ASMS_API_PASSWORD': 'y'}), \
+             patch.object(wizard.subprocess, 'run',
+                          return_value=SimpleNamespace(returncode=0)):
+            self.assertEqual(wizard.refresh_container_certificate(
+                Path('/config/bus.json'), settings, account), 0)
+        saved = json.loads(write.call_args.args[1])
+        self.assertTrue(saved['apply'])
+        self.assertTrue(saved['fireflow']['tls_pin_only'])
+        self.assertEqual(saved['fireflow']['tls_certificate_sha256'], 'a' * 64)
+
     def test_origin_rejects_credentials_paths_and_http(self):
         for value in ['http://example.com', 'https://user:pass@example.com', 'https://example.com/path', 'https://example.com?q=1']:
             with self.subTest(value=value), self.assertRaises(ValueError):

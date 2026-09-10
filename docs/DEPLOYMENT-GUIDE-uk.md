@@ -48,9 +48,10 @@ sh scripts/setup-forge.sh
 
 ### AlgoSec FireFlow API account
 
-Підготуйте існуючий окремий FireFlow API account. Майстер не створює account і не призначає
-ролі. Адміністратор має надати лише права, перевірені для обраного traffic-request template
-і точного переліку devices. Повні ASMS Admin, FireFlow Admin і `ALL_FIREWALLS` не потрібні.
+Для нового середовища `prepare-fireflow.sh` через HTTPS API створює `jira_bus_api` з правами,
+перевіреними в пілоті: ASMS Admin, FireFlow Admin і `ALL_FIREWALLS → Standard`. Він приховано
+питає credentials чинного ASMS administrator, генерує робочий пароль і показує його один раз.
+SSH або локальний запуск на AlgoSec не потрібні.
 
 ## 2. Docker: найпростіше встановлення
 
@@ -106,13 +107,27 @@ Installer повторно перевіряє власний payload та вбу
 майстер і створює container лише після успішного `doctor`. У майстрі введіть Jira tenant,
 API email/token, ASMS URL, FireFlow API user/password, template та дозволені devices.
 
+Для нового середовища спочатку встановіть image та незалежні `.sh` helpers:
+
+```sh
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run --prepare-only
+sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
+sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --project-key ALGO --apply
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run
+```
+
+Helpers виконують реалізацію всередині готового image і не залежать від host Python.
+Перед `prepare-jira.sh` встановіть repository Forge app. Jira helper створює/знаходить
+company-managed project, Network Access, три result fields та окремі screen schemes.
+
 Опція **Trust server certificate** за замовчуванням вимкнена. У цьому режимі діє повна TLS-
 перевірка: довірений ланцюжок CA та відповідність hostname або IP сертифікату. Увімкніть опцію
 лише для приватного/self-signed сертифіката FireFlow або підключення за IP, яке не проходить
 звичайну перевірку. Тоді CA та hostname перевірки для FireFlow замінюються pin-only перевіркою
 точного SHA-256 fingerprint сертифіката сервера. Довільний сертифікат не приймається: після
-планового renewal або заміни сертифіката потрібно повторно запустити майстер і підтвердити новий
-fingerprint.
+планового renewal або заміни сертифіката виконайте
+`sudo bus_conf --refresh-certificate` і підтвердьте новий fingerprint. При помилці автоматично
+повертається попередній pin і робоча конфігурація.
 
 Введення `START` вмикає синхронізацію. Порожня відповідь зберігає `apply: false`.
 

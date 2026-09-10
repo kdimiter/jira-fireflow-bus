@@ -1,0 +1,115 @@
+#!/bin/sh
+# Reconfigure the installed Docker bus without editing private files by hand.
+set -eu
+umask 077
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+unset PYTHONPATH PYTHONHOME DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
+CONTAINER=algosec-jira-bus
+EXPECTED_IMAGE=0.2.1
+PATH_FILE=/etc/algosec-jira-bus-docker.path
+LOCK=/run/lock/algosec-jira-bus-config.lock
+MODE=--reconfigure
+case "${1:-}" in
+    '') ;;
+    --refresh-certificate) MODE=--refresh-certificate; shift;;
+    --help) echo 'Usage: sudo bus_conf [--refresh-certificate]'; exit 0;;
+    *) echo 'Usage: sudo bus_conf [--refresh-certificate]' >&2; exit 2;;
+esac
+[ "$#" -eq 0 ] || { echo 'Usage: sudo bus_conf [--refresh-certificate]' >&2; exit 2; }
+
+[ "$(uname -s)" = Linux ] || { echo 'Linux host required.' >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || { echo 'Run: sudo bus_conf' >&2; exit 1; }
+mkdir "$LOCK" 2>/dev/null \
+    || { echo 'Another installer or bus_conf session is already running.' >&2; exit 1; }
+ARMED=0
+cleanup() {
+    STATUS=$?
+    trap - 0 HUP INT TERM
+    if [ "$ARMED" -eq 1 ]; then rollback; fi
+    rmdir "$LOCK" 2>/dev/null || true
+    exit "$STATUS"
+}
+trap cleanup 0
+trap 'exit 130' HUP INT TERM
+[ -f "$PATH_FILE" ] && [ ! -L "$PATH_FILE" ] \
+    || { echo 'Installed data-path record is missing or unsafe.' >&2; exit 1; }
+[ "$(stat -c '%u:%a' "$PATH_FILE")" = 0:600 ] \
+    || { echo 'Installed data-path record has unsafe ownership or mode.' >&2; exit 1; }
+DATA=$(cat "$PATH_FILE")
+case "$DATA" in /*) ;; *) echo 'Invalid installed data directory.' >&2; exit 1;; esac
+case "$DATA" in *:*|*,*|*/../*|*/./*) echo 'Invalid installed data directory.' >&2; exit 1;; esac
+[ -d "$DATA" ] && [ ! -L "$DATA" ] && [ "$(stat -c '%u:%a' "$DATA")" = 0:700 ] \
+    || { echo 'Unsafe installed data directory.' >&2; exit 1; }
+[ "$(cat "$DATA/.algosec-jira-bus-managed")" = algosec-jira-bus-docker-data-v1 ] \
+    || { echo 'Invalid installed data marker.' >&2; exit 1; }
+for DIRECTORY in "$DATA/config" "$DATA/state"; do
+    [ -d "$DIRECTORY" ] && [ ! -L "$DIRECTORY" ] \
+        && [ "$(stat -c '%u:%g:%a' "$DIRECTORY")" = 10001:10001:700 ] \
+        || { echo "Unsafe managed directory: $DIRECTORY" >&2; exit 1; }
+done
+LABEL=$(docker inspect --format '{{index .Config.Labels "org.algosec.jira-bus.managed"}}' "$CONTAINER")
+[ "$LABEL" = helper ] || { echo 'Container is not managed by this installer.' >&2; exit 1; }
+IMAGE=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER")
+IMAGE_VERSION=$(docker image inspect --format '{{index .Config.Labels "org.algosec.jira-bus.image"}}' "$IMAGE")
+[ "$IMAGE_VERSION" = "$EXPECTED_IMAGE" ] \
+    || { echo 'bus_conf does not match the installed image.' >&2; exit 1; }
+BACKUP="$DATA/.config.bus-conf-backup"
+[ ! -e "$BACKUP" ] && [ ! -L "$BACKUP" ] \
+    || { echo 'A previous configuration backup exists; inspect it before retrying.' >&2; exit 1; }
+cp -a -- "$DATA/config" "$BACKUP"
+rollback() {
+    docker stop "$CONTAINER" >/dev/null 2>&1 || true
+    rm -rf -- "$DATA/config"
+    mv -- "$BACKUP" "$DATA/config"
+    docker start "$CONTAINER" >/dev/null 2>&1 || true
+}
+ARMED=1
+if [ "$MODE" = --refresh-certificate ]; then
+    echo '=== FireFlow certificate rotation ==='
+    echo 'The new certificate fingerprint will be shown before it is trusted.'
+else
+    echo '=== Jira ==='
+    echo 'URL, email and API token will be requested.'
+    echo '=== FireFlow ==='
+    echo 'URL, API username/password and TLS trust will be requested.'
+    echo '=== Integration ==='
+    echo 'Project, request type, Jira fields and device trees will be requested.'
+fi
+docker stop "$CONTAINER" >/dev/null
+MOUNT_RW=rw
+if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = Enforcing ]; then MOUNT_RW=rw,Z; fi
+TTY=-i
+if [ -t 0 ] && [ -t 1 ]; then TTY=-it; fi
+if ! docker run --rm "$TTY" --user 10001:10001 --read-only \
+    --tmpfs /tmp:rw,nosuid,nodev,size=64m --cap-drop ALL \
+    --security-opt no-new-privileges --pids-limit 128 \
+    --memory 512m --memory-swap 512m \
+    -v "$DATA/config:/etc/algosec-jira-bus:$MOUNT_RW" \
+    -v "$DATA/state:/var/lib/algosec-jira-bus:$MOUNT_RW" \
+    --entrypoint python "$IMAGE" \
+    /opt/algosec-jira-bus/setup-source/scripts/setup_wizard.py \
+    --source /opt/algosec-jira-bus/setup-source --container "$MODE"; then
+    echo 'Configuration failed; restoring the previous working files.' >&2
+    exit 1
+fi
+STARTED=$(date +%s)
+docker start "$CONTAINER" >/dev/null
+READY=0
+ATTEMPT=0
+while [ "$ATTEMPT" -lt 90 ]; do
+    [ "$(docker inspect --format '{{.State.Running}}' "$CONTAINER" 2>/dev/null || true)" = true ] || break
+    if docker logs --since "$STARTED" "$CONTAINER" 2>&1 | grep -q '^READY: startup doctor passed\.$'; then
+        READY=1
+        break
+    fi
+    sleep 2
+    ATTEMPT=$((ATTEMPT + 2))
+done
+if [ "$READY" -ne 1 ]; then
+    echo 'Container did not become ready; restoring the previous configuration.' >&2
+    exit 1
+fi
+ARMED=0
+rm -rf -- "$BACKUP"
+echo 'Configuration applied. Container startup doctor passed.'

@@ -148,7 +148,7 @@ class TLS(unittest.TestCase):
 
         opener = Opener(Response())
         config = {'base_url': 'https://asms.example.test', 'ca_file': '/private/ca.pem',
-                  'tls_certificate_sha256': '0' * 64}
+                  'tls_certificate_sha256': '1' * 64}
         with patch('algosec_jira_bus.transport.ssl.create_default_context', side_effect=context), \
              patch('algosec_jira_bus.transport.urllib.request.build_opener',
                    return_value=opener) as build:
@@ -170,6 +170,32 @@ class TLS(unittest.TestCase):
         self.assertEqual(handler.https_open(Mock()), 'response')
         _connection, _request = handler.do_open.call_args.args
         self.assertEqual(handler.do_open.call_args.kwargs, {'context': context})
+
+    def test_trust_server_certificate_disables_pki_only_with_an_exact_pin(self):
+        opener = Opener(Response())
+        config = {'base_url': 'https://192.0.2.10', 'tls_pin_only': True,
+                  'tls_certificate_sha256': '1' * 64}
+        with patch('algosec_jira_bus.transport.urllib.request.build_opener',
+                   return_value=opener) as build:
+            request_json(config, '/x')
+        handlers = build.call_args.args
+        pinned = [handler for handler in handlers if isinstance(handler, PinnedHTTPSHandler)]
+        self.assertEqual(len(pinned), 1)
+        self.assertFalse(pinned[0].context.check_hostname)
+        self.assertEqual(pinned[0].context.verify_mode, ssl.CERT_NONE)
+        self.assertGreaterEqual(pinned[0].context.minimum_version, ssl.TLSVersion.TLSv1_2)
+
+    def test_trust_server_certificate_rejects_missing_pin_ca_and_bad_type(self):
+        bad = (
+            {'tls_pin_only': True},
+            {'tls_pin_only': True, 'tls_certificate_sha256': '0' * 64},
+            {'tls_pin_only': True, 'tls_certificate_sha256': '0' * 64,
+             'ca_file': '/ca.pem'},
+            {'tls_pin_only': 'yes', 'tls_certificate_sha256': '0' * 64},
+        )
+        for extra in bad:
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                request_json({'base_url': 'https://192.0.2.10', **extra}, '/x')
 
 
 if __name__ == '__main__':

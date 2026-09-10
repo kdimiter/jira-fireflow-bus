@@ -2,6 +2,9 @@
 
 ## 0.2.1
 
+- Added `bus_conf` with safe certificate-pin rotation and rollback.
+- Added `prepare-fireflow.sh` and `prepare-jira.sh`; both run through the ready Docker image.
+- Added opt-in pin-only TLS for IP/private-CA FireFlow deployments.
 - Added unattended Docker installation from private `bus.json` and `secrets.json` files.
 - Added optional private-CA staging while preserving hostname validation and certificate pinning.
 - Run the new configuration doctor before stopping the existing container.
