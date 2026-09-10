@@ -106,9 +106,29 @@ Installer повторно перевіряє власний payload та вбу
 майстер і створює container лише після успішного `doctor`. У майстрі введіть Jira tenant,
 API email/token, ASMS URL, FireFlow API user/password, template та дозволені devices.
 
+Опція **Trust server certificate** за замовчуванням вимкнена. У цьому режимі діє повна TLS-
+перевірка: довірений ланцюжок CA та відповідність hostname або IP сертифікату. Увімкніть опцію
+лише для приватного/self-signed сертифіката FireFlow або підключення за IP, яке не проходить
+звичайну перевірку. Тоді CA та hostname перевірки для FireFlow замінюються pin-only перевіркою
+точного SHA-256 fingerprint сертифіката сервера. Довільний сертифікат не приймається: після
+планового renewal або заміни сертифіката потрібно повторно запустити майстер і підтвердити новий
+fingerprint.
+
 Введення `START` вмикає синхронізацію. Порожня відповідь зберігає `apply: false`.
 
-### 2.3. Автоматичне встановлення без майстра
+### 2.3. Повторна конфігурація після встановлення
+
+Щоб змінити налаштування вже встановленого Docker deployment, запустіть:
+
+```sh
+sudo bus_conf
+```
+
+Майстер щоразу повторно запитує Jira URL, API email/token, ASMS/FireFlow URL та FireFlow API
+user/password. Введіть актуальні значення, навіть якщо змінюєте лише один параметр. Майстер не
+показує збережені tokens і застосовує нову конфігурацію після перевірки з'єднань.
+
+### 2.4. Автоматичне встановлення без майстра
 
 На production-сервері ChatGPT, агент і MCP не потрібні. Підготуйте `bus.json` з
 `env:JIRA_API_TOKEN` та `env:ASMS_API_PASSWORD`, а також приватний `secrets.json`, який містить
@@ -139,7 +159,8 @@ sudo sh algosec-jira-bus-0.2.1-docker-amd64.run \
 
 У `fireflow.base_url` використовуйте FQDN із SAN сертифіката. Членство Linux-сервера в Active
 Directory не потрібне: потрібні лише DNS-резолвінг цього FQDN, TCP/443 і довіра до переданого
-CA. Перевірка CA, hostname і `tls_certificate_sha256` не вимикається.
+CA. Варіант із `--ca-file` зберігає повну перевірку CA та hostname; pin-only режим
+**Trust server certificate** стосується інтерактивної конфігурації через `sudo bus_conf`.
 
 Перевірка:
 

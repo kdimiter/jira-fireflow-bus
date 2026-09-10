@@ -23,19 +23,31 @@ Python packages.
 sha256sum -c algosec-jira-bus-0.2.1-docker-amd64.run.sha256
 sudo sh algosec-jira-bus-0.2.1-docker-amd64.run
 
-# 2. After the wizard, inspect the service:
+# 2. Re-run the configuration wizard after deployment if needed:
+sudo bus_conf
+
+# 3. Inspect the service:
 sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
 ```
 
 On a clean Ubuntu/Debian or RHEL/Rocky/AlmaLinux host, the verified `.run` installer
 installs Python 3 and Docker Engine from the OS and official Docker repositories when they are
-missing. Its default wizard asks for the Jira URL, API email/token, FireFlow FQDN, API account,
-template, devices, and optional private CA before it runs the connectivity doctor.
+missing. Its default wizard asks for the Jira URL, API email/token, FireFlow URL, API account,
+template, devices, and TLS mode before it runs the connectivity doctor. The installer also adds
+`sudo bus_conf` for post-deployment changes. Every run asks for the Jira and FireFlow URLs and
+API credentials again; enter the current values even when changing only one setting.
 
 Download: [GitHub Release v0.2.1](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.1).
 The wizard validates both API connections and keeps `apply: false` unless the operator enters
 `START`.
+
+Leave **Trust server certificate** disabled, as it is by default, to require full TLS validation
+of the CA chain and the hostname or IP address. Enable it only for a private/self-signed
+FireFlow certificate or an IP-based connection that cannot pass normal validation. In this
+exception mode, CA and hostname checks are replaced by pin-only verification of the exact server
+certificate SHA-256 fingerprint. A different certificate is rejected; after certificate renewal
+or replacement, run `sudo bus_conf` and approve the new fingerprint.
 
 For an unattended production install, prepare owner-only files on the Linux server and pass
 them to the same installer. No ChatGPT, agent, MCP service, repository checkout, compiler, or
@@ -52,9 +64,9 @@ sudo sh algosec-jira-bus-0.2.1-docker-amd64.run \
 `secrets.json` contains exactly `JIRA_API_TOKEN` and `ASMS_API_PASSWORD`. If FireFlow uses a
 private CA, stage its PEM file with mode `0600` and add
 `--ca-file /root/jira-fireflow-deploy/fireflow-ca.pem`. Use a FireFlow FQDN present in the
-certificate SAN; the installer keeps CA, hostname, and optional certificate-pin verification
-enabled. It runs the new configuration doctor before stopping an existing container and restores
-the prior deployment if the replacement cannot start.
+certificate SAN; this unattended path keeps full CA and hostname verification enabled. It runs
+the new configuration doctor before stopping an existing container and restores the prior
+deployment if the replacement cannot start.
 
 The adjacent `.sha256` file checks download integrity. Release reviewers can additionally use
 `SHA256SUMS`, `RELEASE-MANIFEST.json`, and the SPDX SBOM published with the release. The manifest
@@ -72,8 +84,8 @@ For native systemd installation and complete Jira/FireFlow preparation, see the
 ## Security model
 
 - Jira and FireFlow origins must be HTTPS.
-- Normal CA and hostname validation always remains enabled; an exact certificate SHA-256 pin
-  can add another check.
+- Full CA-chain and hostname/IP validation is the default. The optional **Trust server
+  certificate** mode replaces those checks for FireFlow with an exact SHA-256 certificate pin.
 - Runtime secrets, configuration, state, receipts, and logs are excluded from releases.
 - Templates, devices, and writable FireFlow fields are allowlisted.
 - Durable operation identifiers, pre-submit receipts, and reconciliation limit duplicate
