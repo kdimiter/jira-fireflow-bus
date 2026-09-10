@@ -212,13 +212,3 @@ access. Container працює без root, із read-only root filesystem, `cap
 `jira.scan_limit` обмежує кількість прочитаних issues за poll. Перевищення завершує poll
 помилкою і вимагає звузити JQL. `max_per_pass` окремо обмежує кількість створених FireFlow
 requests.
-
-## 6. Скриншоти для документації
-
-Можна залишати стандартні назви Jira й AlgoSec objects. Перед додаванням screenshot:
-
-1. Розмийте email, login, tokens/passwords, tenant hostname, internal IP/DNS, account/app IDs,
-   issue content і customer-specific names.
-2. Видаліть EXIF/metadata.
-3. Перегляньте готовий raster-файл після blur на 100% zoom.
-4. Не зберігайте оригінал screenshot у Git history.
