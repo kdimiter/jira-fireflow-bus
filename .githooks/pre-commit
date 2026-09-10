@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+python3 scripts/check-public-tree.py
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --no-banner
+fi

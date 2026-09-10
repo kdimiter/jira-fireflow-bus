@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist/
+.env*
+config.json
+bus.json
+secrets.json
+secrets.env
+*.jsonl
+*.started.json
+*.p12
+*.pfx
+*.jks
+*.kdbx
+state/
+receipts/
+approvals/
+# Unanchored, so a real bus configuration is ignored wherever somebody drops one.
+jira-sync.json
+# ...except the sanitised example, which four documents tell the reader to look at.
+# Without this line the pattern above swallowed it silently and the repository
+# shipped instructions pointing at a file that was not in it.
+!examples/jira-sync.json
+*.key
+*.pem
+*.log

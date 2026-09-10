@@ -1,0 +1,95 @@
+app:
+  id: ari:cloud:ecosystem::app/00000000-0000-0000-0000-000000000000
+  runtime:
+    name: nodejs22.x
+modules:
+  jira:customField:
+    - key: algosec-network-access
+      name: Мережеві доступи AlgoSec
+      description: Структурована заявка з одним або кількома мережевими доступами
+      type: object
+      view:
+        resource: access-view
+        render: native
+        experience: [ issue-view ]
+        formatter:
+          expression: "value == null ? '' : value.changeType + ': ' +
+            value.trafficLines.length + ' access line(s) — ' +
+            value.justification"
+      edit:
+        resource: access-edit
+        render: native
+        isInline: true
+        experience: [ issue-view, issue-create ]
+        validation:
+          expression: "value != null && value.schemaVersion == 1 &&
+            value.justification.trim().length > 0 && value.trafficLines.length
+            >= 1 && value.trafficLines.length <= 100"
+          errorMessage: Заповніть обґрунтування та від 1 до 100 доступів.
+      schema:
+        type: object
+        additionalProperties: false
+        required: [ schemaVersion, justification, changeType, duration, trafficLines ]
+        properties:
+          schemaVersion:
+            type: integer
+            enum: [ 1 ]
+          justification:
+            type: string
+            minLength: 1
+          changeType:
+            type: string
+            enum: [ Allow, Drop ]
+          duration:
+            type: object
+            additionalProperties: false
+            required: [ kind ]
+            properties:
+              kind:
+                type: string
+                enum: [ permanent ]
+          trafficLines:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              type: object
+              additionalProperties: false
+              required: [ source, destination, services ]
+              properties:
+                source: &address
+                  type: object
+                  additionalProperties: false
+                  required: [ kind, value ]
+                  properties:
+                    kind:
+                      type: string
+                      enum: [ ip, subnet, range, hostname ]
+                    value:
+                      type: string
+                      minLength: 1
+                destination: *address
+                services:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [ kind, protocol, port ]
+                    properties:
+                      kind:
+                        type: string
+                        enum: [ port ]
+                      protocol:
+                        type: string
+                        enum: [ tcp, udp ]
+                      port:
+                        type: integer
+                        minimum: 1
+                        maximum: 65535
+resources:
+  - key: access-view
+    path: src/view.tsx
+  - key: access-edit
+    path: src/edit.tsx

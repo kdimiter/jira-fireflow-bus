@@ -1,0 +1,125 @@
+{
+  "jira": {
+    "base_url": "https://your-tenant.atlassian.net",
+    "email": "integration@example.com",
+    "token_ref": "env:JIRA_API_TOKEN",
+    "jql": "project = NAC AND issuetype = \"Network Access\" AND status = \"To Do\" ORDER BY created ASC",
+    "limit": 50,
+    "scan_limit": 1000
+  },
+  "fireflow": {
+    "base_url": "https://asms.example.com",
+    "username": "jira_fireflow_service",
+    "password_ref": "env:ASMS_API_PASSWORD",
+    "tls_certificate_sha256": "REPLACE_WITH_VERIFIED_64_HEX_SHA256",
+    "template": "Basic Change Traffic Request",
+    "devices": [
+      "edge-fw-01"
+    ],
+    "allowed_templates": [
+      "Basic Change Traffic Request"
+    ],
+    "allowed_devices": [
+      "edge-fw-01"
+    ],
+    "allowed_fields": [
+      "devices",
+      "subject",
+      "Change Request Description"
+    ],
+    "request_timeout": 30
+  },
+  "mapping": {
+    "structured": {
+      "field": "customfield_10000"
+    }
+  },
+  "apply": false,
+  "max_per_pass": 1,
+  "state": "/var/lib/algosec-jira-bus/jira-sync.json",
+  "journal": "/var/lib/algosec-jira-bus",
+  "mirror": {
+    "comment": "AlgoSec FireFlow: заявка %(id)s тепер у статусі %(status)s.",
+    "transitions": {
+      "open": "Plan",
+      "plan": "Plan",
+      "approve": "Approve",
+      "review": "Review",
+      "create work order": "Implement",
+      "implement": "Implement",
+      "validate": "Validate",
+      "reconcile": "Match",
+      "pending match": "Match",
+      "match": "Match",
+      "rejected": "Rejected",
+      "cancelled": "Cancelled",
+      "new": "To Do",
+      "operational review": "Approve",
+      "user accept": "Validate",
+      "user disapproved": "Validate",
+      "notify requestors": "Approve",
+      "pending response": "Approve",
+      "check": "Approve",
+      "implementation plan": "Implement",
+      "user confirmed": "Validate",
+      "requestor response": "Validate",
+      "reconciled": "Match",
+      "already works": "To Do",
+      "deleted": "Cancelled"
+    },
+    "result_fields": {
+      "id": "customfield_10001",
+      "status": "customfield_10002",
+      "owner": "customfield_10003"
+    },
+    "verify_resolved_children": true,
+    "outcome_rules": [
+      {
+        "status": "resolved",
+        "field": "Completion verified",
+        "equals": "yes",
+        "transition": "Done"
+      },
+      {
+        "status": "approved",
+        "field": "Workflow",
+        "equals": "Basic",
+        "transition": "Approve"
+      },
+      {
+        "status": "approved",
+        "field": "Workflow",
+        "equals": "Standard",
+        "transition": "Approve"
+      },
+      {
+        "status": "approved",
+        "field": "Workflow",
+        "equals": "Standard-With-SLA",
+        "transition": "Approve"
+      },
+      {
+        "status": "approved",
+        "field": "Workflow",
+        "equals": "Multi-Approval",
+        "transition": "Review"
+      },
+      {
+        "status": "approved",
+        "field": "Workflow",
+        "equals": "Parallel-Approval",
+        "transition": "Review"
+      }
+    ],
+    "observed_fields": [
+      "Risk Level",
+      "Risks Number",
+      "Validation Result Details",
+      "Initial Plan status",
+      "Workflow"
+    ]
+  },
+  "intake": {
+    "mode": "todo"
+  }
+}

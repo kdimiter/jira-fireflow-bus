@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+"""Interactive Linux setup. Never submits a firewall change during setup."""
+import argparse
+import copy
+import getpass
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import subprocess
+import sys
+import tempfile
+import uuid
+from urllib.parse import urlsplit
+
+
+def ask(label, default=''):
+    value = input(f'{label}' + (f' [{default}]' if default else '') + ': ').strip()
+    return value or default
+
+
+def origin(value):
+    p = urlsplit(value)
+    if p.scheme != 'https' or not p.hostname or p.username or p.password or p.path not in ('', '/') or p.query or p.fragment:
+        raise ValueError('Enter an HTTPS origin without path, credentials or query')
+    return value.rstrip('/')
+
+
+def secret_line(name, value):
+    if not re.fullmatch(r'[A-Z_][A-Z0-9_]*', name):
+        raise ValueError('Invalid environment variable name')
+    if not value or any(c in value for c in '\r\n\x00'):
+        raise ValueError('Secret must be nonempty and single-line')
+    # systemd EnvironmentFile double-quoted syntax, not shell evaluation.
+    return name + '="' + value.replace('\\', '\\\\').replace('"', '\\"') + '"\n'
+
+
+def write_private(path, content, uid, gid):
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError('Refusing symlink: ' + str(path))
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix='.' + path.name)
+    try:
+        with os.fdopen(fd, 'w') as f:
+            os.fchmod(f.fileno(), 0o600)
+            os.fchown(f.fileno(), uid, gid)
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def choose_field(fields, name, kind):
+    candidates = [f for f in fields if f.get('name') == name and f.get('schema', {}).get('type') == kind]
+    if len(candidates) == 1:
+        field = candidates[0]['id']
+        print(f'{name}: {field}')
+        return field
+    print(f'Select {name}; expected type={kind}:')
+    for f in fields:
+        if f.get('schema', {}).get('type') == kind:
+            print(f"  {f['id']}: {f.get('name', '')}")
+    value = ask('Field ID')
+    if not any(f.get('id') == value and f.get('schema', {}).get('type') == kind for f in fields):
+        raise ValueError('Field not found or wrong type. Configure Jira then rerun.')
+    return value
+
+
+def validate_worktype(project_data, worktype):
+    if not any(str(t.get('id')) == worktype and not t.get('subtask', False) for t in project_data.get('issueTypes', [])):
+        raise ValueError('Work type must belong to the selected project and cannot be a subtask')
+
+
+def build_config(template, jira_url, email, project, issue_type, ff_url, ff_user, devices, pin, fields):
+    if not re.fullmatch('[A-Z][A-Z0-9_]{1,20}', project):
+        raise ValueError('Invalid project key')
+    if not issue_type.isdecimal():
+        raise ValueError('Use numeric Jira work type ID')
+    if not devices or any(not re.fullmatch(r'[A-Za-z0-9_.:/-]+', d) for d in devices):
+        raise ValueError('Device tree names are required')
+    if pin and not re.fullmatch('[0-9a-fA-F]{64}', pin):
+        raise ValueError('Certificate SHA256 must be 64 hex characters')
+    if not email.strip() or not ff_user.strip():
+        raise ValueError('API email and FireFlow username are required')
+    if set(fields) != {'structured', 'id', 'status', 'owner'} or any(not re.fullmatch(r'customfield_[0-9]+', v) for v in fields.values()) or len(set(fields.values())) != 4:
+        raise ValueError('Four distinct Jira custom field IDs are required')
+    c = copy.deepcopy(template)
+    c['jira'].update(base_url=origin(jira_url), email=email,
+                     jql=f'project = {project} AND issuetype = {issue_type} AND status = "To Do" ORDER BY created ASC')
+    c['fireflow'].update(base_url=origin(ff_url), username=ff_user, devices=devices, allowed_devices=devices)
+    c['fireflow'].pop('tls_certificate_sha256', None)
+    if pin:
+        c['fireflow']['tls_certificate_sha256'] = pin.lower()
+    c['mapping']['structured']['field'] = fields['structured']
+    c['mirror']['result_fields'] = {k: fields[k] for k in ('id', 'status', 'owner')}
+    c['apply'] = False
+    return c
+
+
+def collect_fireflow_credentials():
+    """Collect an existing dedicated integration account."""
+    ff_url = origin(ask('ASMS URL'))
+    pin = ask('Verified ASMS certificate SHA256 (blank = public/system CA)')
+    if pin and not re.fullmatch('[0-9a-fA-F]{64}', pin):
+        raise ValueError('Certificate SHA256 must be 64 hex characters')
+    ff_user = ask('FireFlow API user', 'jira_bus_api')
+    password = getpass.getpass('Existing FireFlow API password: ')
+    return ff_url, ff_user, password, pin
+
+
+def run_doctor(config):
+    """Use a runtime oneshot unit, supported by systemd 219 and later."""
+    unit = 'algosec-jira-bus-setup-' + uuid.uuid4().hex + '.service'
+    path = Path('/run/systemd/system') / unit
+    # Config is the fixed installer path. Reject unit syntax interpolation.
+    if str(config) != '/etc/algosec-jira-bus/bus.json':
+        raise ValueError('Unexpected doctor configuration path')
+    content = ('[Unit]\nDescription=AlgoSec setup connectivity check\n'
+               '[Service]\nType=oneshot\nUser=algosec-jira-bus\nGroup=algosec-jira-bus\n'
+               'EnvironmentFile=/etc/algosec-jira-bus/secrets.env\nUMask=0077\n'
+               'ExecStart=/opt/algosec-jira-bus/venv/bin/algosec-jira-bus '
+               '--config /etc/algosec-jira-bus/bus.json --state-dir /var/lib/algosec-jira-bus doctor\n')
+    write_private(path, content, 0, 0)
+    try:
+        subprocess.run(['systemctl', 'daemon-reload'], check=True)
+        # Type=oneshot start waits for the command and returns failure on doctor failure.
+        result = subprocess.run(['systemctl', 'start', unit])
+        subprocess.run(['journalctl', '--no-pager', '-u', unit])
+        return result
+    finally:
+        path.unlink(missing_ok=True)
+        subprocess.run(['systemctl', 'reset-failed', unit], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['systemctl', 'daemon-reload'], check=True)
+
+
+def finish_setup(config, settings, account):
+    """Recheck saved setup on every run before allowing activation."""
+    check = run_doctor(config)
+    if check.returncode:
+        print('NOT READY: doctor failed. Configuration saved; no timer started. Fix reported issues and run doctor again.')
+        return 1
+    print('Connectivity doctor passed; this is not an end-to-end integration test. Confirm Jira workflow, Forge required field, and API account rights using the guide.')
+    if ask('Type START to enable synchronization; Enter keeps dry run') != 'START':
+        print('No activation requested; existing apply setting and service state preserved.')
+        return 0
+    previous_apply = settings.get('apply', False)
+    settings['apply'] = True
+    dropin = Path('/etc/systemd/system/algosec-jira-bus.timer.d')
+    dropin.mkdir(exist_ok=True)
+    (dropin / 'interval.conf').write_text('[Timer]\nOnUnitActiveSec=\nOnUnitActiveSec=30s\nAccuracySec=1s\n')
+    try:
+        write_private(config, json.dumps(settings, indent=2, ensure_ascii=False) + '\n', account.pw_uid, account.pw_gid)
+        subprocess.run(['systemctl', 'daemon-reload'], check=True)
+        subprocess.run(['systemctl', 'enable', '--now', 'algosec-jira-bus.timer', 'algosec-jira-bus-reconcile.timer'], check=True)
+    except (OSError, subprocess.CalledProcessError):
+        settings['apply'] = previous_apply
+        write_private(config, json.dumps(settings, indent=2, ensure_ascii=False) + '\n', account.pw_uid, account.pw_gid)
+        print('Activation failed; prior apply setting restored. Inspect both timers before retrying.')
+        raise
+    print('Synchronization enabled, 30-second poll. Check journalctl -u algosec-jira-bus.service.')
+    return 0
+
+
+def finish_container(config, settings, account):
+    """Validate inside an isolated container; activation only changes saved apply."""
+    secrets = json.loads((config.parent / 'secrets.json').read_text())
+    if set(secrets) != {'JIRA_API_TOKEN', 'ASMS_API_PASSWORD'} or any(
+            not isinstance(v, str) or not v or any(c in v for c in '\r\n\x00') for v in secrets.values()):
+        raise ValueError('Invalid container secrets.json')
+    env = dict(os.environ, **secrets)
+    result = subprocess.run([sys.executable, '-m', 'algosec_jira_bus.bus',
+                             '--config', str(config), '--state-dir', '/var/lib/algosec-jira-bus',
+                             'doctor'], env=env)
+    if result.returncode:
+        print('NOT READY: doctor failed; container activation refused.')
+        return 1
+    settings['apply'] = ask('Type START to enable synchronization; Enter saves dry run') == 'START'
+    write_private(config, json.dumps(settings, indent=2, ensure_ascii=False) + '\n', account.pw_uid, account.pw_gid)
+    print('Configuration validated. Container helper may now start the service.')
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source', type=Path, required=True)
+    parser.add_argument('--container', action='store_true', help='Configure mounted files without systemd')
+    args = parser.parse_args()
+    if sys.platform != 'linux' or (not args.container and os.geteuid() != 0):
+        raise ValueError('Run on Linux as root')
+    account = pwd.getpwuid(os.geteuid()) if args.container else pwd.getpwnam('algosec-jira-bus')
+    finish = finish_container if args.container else finish_setup
+    folder = Path('/etc/algosec-jira-bus')
+    config = folder / 'bus.json'
+    print('AlgoSec Jira integration setup. Secrets are not printed.')
+    print('Guide: /opt/algosec-jira-bus/docs/DEPLOYMENT-GUIDE-uk.md')
+    print('Jira: deploy Forge, add Network Access and workflow before field discovery.')
+    print('Dedicated Jira and ASMS API accounts must already be prepared.')
+    print('Grant only the rights validated for this deployment; the wizard does not grant roles.')
+    print('Use a Jira token supported by this tenant-origin client; scoped gateway tokens are not supported by this wizard.')
+    existing = json.loads(config.read_text()) if config.exists() else {}
+    configured = existing.get('mapping', {}).get('structured') and 'YOUR-' not in existing.get('jira', {}).get('base_url', '')
+    if configured:
+        print('Existing configuration detected; preserving it and secrets.')
+        return finish(config, existing, account)
+    secrets_path = folder / ('secrets.json' if args.container else 'secrets.env')
+    if secrets_path.exists() and any(line.strip() and not line.lstrip().startswith('#') for line in secrets_path.read_text().splitlines()):
+        raise ValueError('Existing secrets.env preserved. Complete bus.json using the guide, then rerun; wizard will not replace existing credentials.')
+    url = origin(ask('Jira site URL'))
+    email = ask('Jira API account email')
+    token = getpass.getpass('Jira API token: ')
+    os.environ['JIRA_API_TOKEN'] = token
+    from algosec_jira_bus.jira import Jira
+    jira = Jira({'base_url': url, 'email': email, 'token_ref': 'env:JIRA_API_TOKEN'})
+    print('Jira identity:', jira.myself().get('displayName'))
+    project = ask('Project key', 'NET')
+    project_data = jira._call('/rest/api/3/project/' + project) if re.fullmatch('[A-Z][A-Z0-9_]{1,20}', project) else {}
+    print('Work types:', ', '.join(f"{t['id']}={t['name']}" for t in project_data.get('issueTypes', [])))
+    worktype = ask('Network Access work type numeric ID')
+    validate_worktype(project_data, worktype)
+    available = jira.fields()
+    fields = {'structured': choose_field(available, 'Мережеві доступи AlgoSec', 'object')}
+    for k, name in [('id', 'FireFlow Request ID'), ('status', 'FireFlow Status'), ('owner', 'FireFlow Owner')]:
+        fields[k] = choose_field(available, name, 'string')
+    ff_url, ff_user, password, pin = collect_fireflow_credentials()
+    devices = [v.strip() for v in ask('Device tree names (comma-separated)').split(',') if v.strip()]
+    template = json.loads((args.source / 'examples/jira-sync-basic-structured.json').read_text())
+    settings = build_config(template, url, email, project, worktype, ff_url, ff_user, devices, pin, fields)
+    secrets = (json.dumps({'JIRA_API_TOKEN': token, 'ASMS_API_PASSWORD': password}) + '\n' if args.container
+               else secret_line('JIRA_API_TOKEN', token) + secret_line('ASMS_API_PASSWORD', password))
+    # Preserve original installer placeholders, too; never replace silently on a rerun.
+    for p in (config, secrets_path):
+        if p.exists() and not p.with_suffix(p.suffix + '.before-wizard').exists():
+            write_private(p.with_suffix(p.suffix + '.before-wizard'), p.read_text(), account.pw_uid, account.pw_gid)
+    write_private(secrets_path, secrets, account.pw_uid, account.pw_gid)
+    write_private(config, json.dumps(settings, indent=2, ensure_ascii=False) + '\n', account.pw_uid, account.pw_gid)
+    return finish(config, settings, account)
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except (ValueError, OSError, subprocess.CalledProcessError) as e:
+        print('Setup stopped:', str(e), file=sys.stderr)
+        raise SystemExit(1)

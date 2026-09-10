@@ -1,0 +1,67 @@
+# One poll, then exit. The loop lives in the timer, not in the process: a bus that sleeps
+# inside itself keeps a session, a token and a socket alive for hours between two seconds
+# of work, and gives systemd nothing to restart when it wedges.
+#
+# Copy this and the timer to /etc/systemd/system, adjust the three paths marked below, then
+#   systemctl daemon-reload && systemctl enable --now algosec-jira-bus.timer
+#
+# Dry run is the default and this unit does not carry the mode: set "apply": true in
+# bus.json when you are ready. Putting it in the unit's ExecStart would work until the next
+# upgrade replaced the file, and a deployment silently back in dry run looks exactly like a
+# deployment with nothing to do.
+
+# Requires systemd 235 or newer (Rocky 8 and anything current). On CentOS 7,
+# systemd 219 silently ignores StateDirectory and ProtectSystem=strict here --
+# use the .centos7.service variant instead, which says what it cannot enforce.
+#
+[Unit]
+Description=Poll Jira for network access requests and mirror FireFlow progress back
+Documentation=file:///opt/algosec-jira-bus/docs/README-uk.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# Dedicated account that owns the config, state directory and secrets.
+User=algosec-jira-bus
+Group=algosec-jira-bus
+
+# ADJUST: where the package is installed. On CentOS 7 this is the standalone interpreter
+# from /opt, because the system Python there is 3.7 and this package needs 3.11.
+ExecStart=/opt/algosec-jira-bus/venv/bin/algosec-jira-bus \
+    --config /etc/algosec-jira-bus/bus.json \
+    --state-dir /var/lib/algosec-jira-bus \
+    poll
+
+# The FireFlow and Jira secrets, referenced through env: values from the config. This is
+# suitable for a headless server without a usable keyring. Mode 0600, owned by this account.
+EnvironmentFile=-/etc/algosec-jira-bus/secrets.env
+
+# systemd creates this 0700 and owned by User=, which is exactly what the connector's
+# secure_dir demands. Do not point the state directory at a home directory: ProtectHome
+# below makes it unreadable, and the failure is confusing.
+StateDirectory=algosec-jira-bus
+StateDirectoryMode=0700
+
+# The bus talks to two HTTPS endpoints and writes one directory. Nothing else is needed.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0077
+
+# A poll that has not finished in five minutes is stuck, not slow. The timer brings the
+# next one; a hung process would block it forever.
+TimeoutStartSec=300

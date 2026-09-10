@@ -1,0 +1,45 @@
+# A reconciliation pass: compare the bus state against the adapter's receipts and against
+# FireFlow, repair the bus's own state file, report everything else.
+#
+# It exits non-zero when it found anything, so `systemctl status` and any alerting that
+# watches unit failures will show it without extra plumbing. That is deliberate: a
+# divergence nobody is told about is the same as no reconciliation at all.
+
+# Requires systemd 235 or newer (Rocky 8 and anything current). On CentOS 7,
+# systemd 219 silently ignores StateDirectory and ProtectSystem=strict here --
+# use the .centos7.service variant instead, which says what it cannot enforce.
+#
+[Unit]
+Description=Reconcile the Jira bus state against FireFlow
+Documentation=file:///opt/algosec-jira-bus/docs/README-uk.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=algosec-jira-bus
+Group=algosec-jira-bus
+ExecStart=/opt/algosec-jira-bus/venv/bin/algosec-jira-bus \
+    --config /etc/algosec-jira-bus/bus.json \
+    --state-dir /var/lib/algosec-jira-bus \
+    reconcile
+EnvironmentFile=-/etc/algosec-jira-bus/secrets.env
+StateDirectory=algosec-jira-bus
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0077
+TimeoutStartSec=600

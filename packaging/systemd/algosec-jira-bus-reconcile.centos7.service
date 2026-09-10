@@ -1,0 +1,57 @@
+# CentOS 7 variant (systemd 219). Use this ONLY on CentOS 7; everywhere else use
+# algosec-jira-bus-reconcile.service, which is stricter.
+#
+# Why a second file rather than one that works everywhere: systemd 219 does not know
+# StateDirectory, and -- worse -- it parses ProtectSystem=strict, fails, and *ignores the
+# line*. A single unit would therefore create no state directory and would silently run
+# with none of the filesystem protection its own text promises. Verified by running
+# systemd-analyze verify on both 219 and 239.
+#
+# NOT enforced here, because 219 has no such directive. This is the price of running on
+# CentOS 7 and it should be a known price, not a surprise:
+#   ProtectSystem=strict  -> ProtectSystem=full (/usr and /boot read-only; /etc is not)
+#   ProtectKernelTunables, ProtectKernelModules, ProtectControlGroups
+#   RestrictNamespaces, RestrictSUIDSGID, LockPersonality
+#
+# Copy to /etc/systemd/system/algosec-jira-bus-reconcile.service (drop the .centos7), together with
+# algosec-jira-bus-reconcile.timer, then daemon-reload and enable the timer.
+
+[Unit]
+Description=Reconcile the Jira bus state against FireFlow (CentOS 7)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# ADJUST: the account that owns the config, the state directory and the secrets.
+User=algosec-jira-bus
+Group=algosec-jira-bus
+
+# 219 has no StateDirectory, so the directory is made here instead. PermissionsStartOnly
+# runs this one line as root, which is what lets it set the owner; everything after it runs
+# as User=. The connector refuses to use a state directory that is not 0700 and owned by
+# the running account, so these modes are not decoration.
+PermissionsStartOnly=yes
+ExecStartPre=/usr/bin/install -d -m 0700 -o algosec-jira-bus -g algosec-jira-bus /var/lib/algosec-jira-bus
+
+# ADJUST: on CentOS 7 the system Python is 3.7 and this package needs 3.11, so this points
+# at the standalone interpreter in /opt rather than anything the distribution ships.
+ExecStart=/opt/algosec-jira-bus/venv/bin/algosec-jira-bus \
+    --config /etc/algosec-jira-bus/bus.json \
+    --state-dir /var/lib/algosec-jira-bus \
+    reconcile
+
+EnvironmentFile=-/etc/algosec-jira-bus/secrets.env
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=full
+ProtectHome=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0077
+
+TimeoutStartSec=600

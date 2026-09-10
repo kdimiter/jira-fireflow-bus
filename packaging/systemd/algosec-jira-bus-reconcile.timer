@@ -1,0 +1,14 @@
+# Once a day, off the hour. Reconciliation reads every known request, so it is the heavier
+# of the two passes and there is nothing it catches that waiting until tomorrow spoils.
+
+[Unit]
+Description=Daily reconciliation of the Jira bus against FireFlow
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=10min
+Unit=algosec-jira-bus-reconcile.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+# Poll every 30 seconds. systemd never starts a second copy of an active service;
+# the bus state lock also prevents overlap with reconciliation.
+
+[Unit]
+Description=Poll Jira for network access requests every 30 seconds
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30s
+# A host that was down over the weekend catches up once on boot rather than not at all.
+Persistent=true
+AccuracySec=1s
+Unit=algosec-jira-bus.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,67 @@
+{
+  "_comment": "Jira Cloud is only ever read, and only from inside the network. The connector requests a change; approval, planning and implementation stay in the FireFlow workflow.",
+  "jira": {
+    "base_url": "https://your-tenant.atlassian.net",
+    "email": "integration@example.com",
+    "token_ref": "keyring:jira-cloud/automation@example.com",
+    "jql": "project = NAC AND issuetype = 'Network Access' AND status = Approved ORDER BY created ASC",
+    "limit": 50,
+    "scan_limit": 1000
+  },
+  "fireflow": {
+    "base_url": "https://asms.example.com",
+    "username": "jira_fireflow_service",
+    "password_ref": "keyring:algosec-host-mcp/mcp_fireflow",
+    "tls_certificate_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "template": "Traffic Change Request",
+    "devices": [
+      "edge-fw-01"
+    ],
+    "allowed_templates": [
+      "Traffic Change Request"
+    ],
+    "allowed_devices": [
+      "edge-fw-01"
+    ],
+    "allowed_fields": [
+      "subject",
+      "devices",
+      "externalId"
+    ]
+  },
+  "mapping": {
+    "action": {
+      "field": "customfield_10050",
+      "values": {
+        "Open": "Allow",
+        "Close": "Drop",
+        "Відкрити": "Allow",
+        "Закрити": "Drop"
+      }
+    },
+    "source": {
+      "field": "customfield_10051"
+    },
+    "destination": {
+      "field": "customfield_10052"
+    },
+    "service": {
+      "field": "customfield_10053"
+    }
+  },
+  "apply": false,
+  "_apply_comment": "false polls and reports what it would do, changing nothing. Set true when you are ready for the bus to create requests and comment. It belongs here rather than in the systemd unit because an upgrade replaces the unit: a mode kept in ExecStart survives until the first upgrade and then silently reverts, and a bus back in dry run looks exactly like a bus with nothing to do. --apply and --dry-run on the command line override this for one run.",
+  "max_per_pass": 50,
+  "_max_per_pass_comment": "How many change requests one pass may submit. The search reads every page of the JQL, so this is not a limit on what the bus sees: anything over the cap waits for the next pass five minutes later and is never dropped. It exists for the first run somebody adds --apply to, where a JQL scoped wider than intended would otherwise submit everything it matched at once. Set to 0 or null to lift it deliberately.",
+  "state": "/var/lib/algosec-jira-bus/jira-sync.json",
+  "mirror": {
+    "comment": "AlgoSec FireFlow request %(id)s is now %(status)s.",
+    "transitions": {
+      "implement": "In Progress",
+      "resolved": "Done"
+    }
+  },
+  "_mirror_comment": "Names on the left are FireFlow STATUSES, not stages. The API returns them lower case ('implement', 'resolved'); matching ignores case, so either spelling works. Statuses are defined per workflow and an administrator can add or rename them, so read the real ones off your own appliance rather than copying this file. Names on the right must match a transition your board actually offers, and the automation account must be allowed to use it.",
+  "_rejection_comment": "There is deliberately NO rejection entry here. FireFlow has no canonical 'rejected' status: validate the actual closed status in your own workflow before mapping it.",
+  "_queue_comment": "A failed transition queues the issue and stops it moving on until it succeeds or a person releases it: see 'queue' and 'release'. That is deliberate now that transitions carry the closing decision."
+}

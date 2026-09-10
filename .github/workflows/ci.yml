@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: PYTHONPATH=tests/stubs python -m unittest discover -s tests
+      - run: python -m py_compile algosec_jira_bus/*.py scripts/*.py
+
+  forge:
+    name: Forge tests and audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forge
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: forge/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run check
+      - run: npm audit --audit-level=high
+
+  shell-and-publication:
+    name: Shell and publication boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: find scripts packaging -type f -name '*.sh' -exec sh -n {} \;
+      - run: python scripts/check-public-tree.py
+      - run: python scripts/build-installer.py --output /tmp/algosec-jira-bus.run
+      - run: sh /tmp/algosec-jira-bus.run --extract /tmp/extracted
+      - run: python scripts/check-public-tree.py /tmp/extracted
