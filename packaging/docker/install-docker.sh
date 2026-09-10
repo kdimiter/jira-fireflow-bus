@@ -6,14 +6,29 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ARCHIVE="$HERE/algosec-jira-bus-docker-amd64.tar.gz"
 IMAGE_SHA256=""
 DATA=/opt/algosec-jira-docker
-IMAGE=algosec-jira-bus:0.2.0
+IMAGE=algosec-jira-bus:0.2.1
+CONFIG_FILE=""
+SECRETS_FILE=""
+CA_FILE=""
+PREPARE_ONLY=0
+BUS_CONF_SOURCE="$HERE/bus_conf"
+FIREFLOW_PREPARE_SOURCE="$HERE/prepare-fireflow.sh"
+JIRA_PREPARE_SOURCE="$HERE/prepare-jira.sh"
+if [ ! -f "$FIREFLOW_PREPARE_SOURCE" ] && [ -f "$HERE/../../scripts/prepare-fireflow.sh" ]; then
+    FIREFLOW_PREPARE_SOURCE="$HERE/../../scripts/prepare-fireflow.sh"
+    JIRA_PREPARE_SOURCE="$HERE/../../scripts/prepare-jira.sh"
+fi
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --bundle) [ "$#" -ge 2 ] || exit 2; shift 2;;
         --image-archive) [ "$#" -ge 2 ] || exit 2; ARCHIVE=$2; shift 2;;
         --image-sha256) [ "$#" -ge 2 ] || exit 2; IMAGE_SHA256=$2; shift 2;;
         --data-dir) [ "$#" -ge 2 ] || exit 2; DATA=$2; shift 2;;
-        --help) echo 'Usage: sh install-docker.sh --image-archive FILE --image-sha256 HEX [--data-dir /absolute/path]'; exit 0;;
+        --config-file) [ "$#" -ge 2 ] || exit 2; CONFIG_FILE=$2; shift 2;;
+        --secrets-file) [ "$#" -ge 2 ] || exit 2; SECRETS_FILE=$2; shift 2;;
+        --ca-file) [ "$#" -ge 2 ] || exit 2; CA_FILE=$2; shift 2;;
+        --prepare-only) PREPARE_ONLY=1; shift;;
+        --help) echo 'Usage: sh install-docker.sh --image-archive FILE --image-sha256 HEX [--prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]'; exit 0;;
         *) echo "Unknown option: $1" >&2; exit 2;;
     esac
 done
@@ -22,7 +37,34 @@ done
 case "$DATA" in /*) ;; *) echo 'Data directory must be absolute.' >&2; exit 1;; esac
 case "$DATA" in *:*|*,*) echo 'Data directory cannot contain colon or comma.' >&2; exit 1;; esac
 [ -f "$ARCHIVE" ] || { echo "Image archive missing: $ARCHIVE" >&2; exit 1; }
+[ -f "$BUS_CONF_SOURCE" ] && [ ! -L "$BUS_CONF_SOURCE" ] \
+    || { echo 'Verified bus_conf helper is missing.' >&2; exit 1; }
+for HELPER in "$FIREFLOW_PREPARE_SOURCE" "$JIRA_PREPARE_SOURCE"; do
+    [ -f "$HELPER" ] && [ ! -L "$HELPER" ] \
+        || { echo "Verified preparation helper is missing: $HELPER" >&2; exit 1; }
+done
 command -v python3 >/dev/null 2>&1 || { echo 'Python 3 is required to verify and stage the image archive.' >&2; exit 1; }
+if { [ -n "$CONFIG_FILE" ] && [ -z "$SECRETS_FILE" ]; } || \
+   { [ -z "$CONFIG_FILE" ] && [ -n "$SECRETS_FILE" ]; }; then
+    echo 'Use --config-file and --secrets-file together.' >&2
+    exit 1
+fi
+[ -z "$CA_FILE" ] || [ -n "$CONFIG_FILE" ] \
+    || { echo '--ca-file requires --config-file and --secrets-file.' >&2; exit 1; }
+if [ -n "$CONFIG_FILE" ]; then
+    case "$CONFIG_FILE:$SECRETS_FILE${CA_FILE:+:$CA_FILE}" in
+        /*:/*|/*:/*:/*) ;;
+        *) echo 'Non-interactive input paths must be absolute.' >&2; exit 1;;
+    esac
+    STAGER="$HERE/stage-config.py"
+    [ -f "$STAGER" ] && [ ! -L "$STAGER" ] \
+        || { echo 'Verified configuration stager is missing.' >&2; exit 1; }
+    if [ -n "$CA_FILE" ]; then
+        python3 "$STAGER" --config "$CONFIG_FILE" --secrets "$SECRETS_FILE" --ca "$CA_FILE"
+    else
+        python3 "$STAGER" --config "$CONFIG_FILE" --secrets "$SECRETS_FILE"
+    fi
+fi
 
 # This helper runs as root, so a typo such as --data-dir / must never turn into
 # chmod/chown of an operating-system directory.  Existing custom locations are accepted
@@ -40,7 +82,6 @@ blocked = {
     '/mnt', '/opt', '/proc', '/root', '/run', '/sbin', '/srv', '/sys', '/tmp',
     '/usr', '/var',
 }
-
 if action not in {'validate', 'initialize'}:
     raise SystemExit('Invalid data-directory operation')
 if (not raw.startswith('/') or any(ord(character) < 32 for character in raw)
@@ -132,6 +173,57 @@ if action == 'initialize':
 print(canonical)
 PY
 }
+install_helpers() {
+    python3 - "$BUS_CONF_SOURCE" "$FIREFLOW_PREPARE_SOURCE" \
+        "$JIRA_PREPARE_SOURCE" "$DATA" <<'PY'
+import os, pathlib, stat, sys, tempfile
+
+sources = list(map(pathlib.Path, sys.argv[1:4]))
+data = pathlib.Path(sys.argv[4])
+
+def atomic_write(destination, payload, mode):
+    destination = pathlib.Path(destination)
+    descriptor, temporary = tempfile.mkstemp(dir=destination.parent,
+                                              prefix='.' + destination.name + '.')
+    try:
+        with os.fdopen(descriptor, 'wb') as output:
+            os.fchmod(output.fileno(), mode)
+            os.fchown(output.fileno(), 0, 0)
+            output.write(payload)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, destination)
+        parent = os.open(destination.parent, os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0))
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+for source, destination in zip(
+        sources, ('/usr/local/sbin/bus_conf', '/usr/local/sbin/prepare-fireflow.sh',
+                  '/usr/local/sbin/prepare-jira.sh')):
+    source_fd = os.open(source, os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) |
+                        getattr(os, 'O_NOFOLLOW', 0))
+    try:
+        details = os.fstat(source_fd)
+        if (not stat.S_ISREG(details.st_mode) or details.st_nlink != 1
+                or details.st_size > 1024 * 1024):
+            raise SystemExit('Invalid verified installation helper')
+        content = os.read(source_fd, details.st_size + 1)
+    finally:
+        os.close(source_fd)
+    if len(content) != details.st_size:
+        raise SystemExit('Could not read verified installation helper')
+    atomic_write(destination, content, 0o755)
+atomic_write('/etc/algosec-jira-bus-docker.path',
+             (str(data) + '\n').encode('utf-8'), 0o600)
+PY
+}
 if [ -z "$IMAGE_SHA256" ]; then
     CHECKSUM_FILE=$ARCHIVE.sha256
     [ -f "$CHECKSUM_FILE" ] && [ ! -L "$CHECKSUM_FILE" ] \
@@ -142,7 +234,14 @@ fi
 # Docker will execute image content with access to mounted secrets. Copy through an open
 # no-follow descriptor and verify the independently supplied digest before docker load.
 STAGE_DIR=$(mktemp -d /tmp/algosec-jira-docker.XXXXXX)
-trap 'rm -rf "$STAGE_DIR"' 0 HUP INT TERM
+PENDING_CONFIG=""
+DOCTOR_STATE=""
+cleanup() {
+    rm -rf "$STAGE_DIR"
+    [ -z "$PENDING_CONFIG" ] || rm -rf "$PENDING_CONFIG"
+    [ -z "$DOCTOR_STATE" ] || rm -rf "$DOCTOR_STATE"
+}
+trap cleanup 0 HUP INT TERM
 STAGED_ARCHIVE=$STAGE_DIR/image.tar.gz
 python3 - "$ARCHIVE" "$IMAGE_SHA256" "$STAGED_ARCHIVE" <<'PY'
 import hashlib, os, pathlib, stat, sys
@@ -239,22 +338,151 @@ case "$ARCH" in x86_64|amd64) ;; *) echo "This image requires an amd64 Docker ho
 docker load -i "$STAGED_ARCHIVE"
 docker image inspect "$IMAGE" >/dev/null
 IMAGE_LABEL=$(docker image inspect --format '{{index .Config.Labels "org.algosec.jira-bus.image"}}' "$IMAGE")
-[ "$IMAGE_LABEL" = 0.2.0 ] || { echo 'Loaded archive is not the expected Jira FireFlow bus image.' >&2; exit 1; }
+[ "$IMAGE_LABEL" = 0.2.1 ] || { echo 'Loaded archive is not the expected Jira FireFlow bus image.' >&2; exit 1; }
 IMAGE_PLATFORM=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")
 [ "$IMAGE_PLATFORM" = linux/amd64 ] || { echo "Loaded image has unexpected platform: $IMAGE_PLATFORM" >&2; exit 1; }
-if docker container inspect algosec-jira-bus >/dev/null 2>&1; then
-    LABEL=$(docker inspect -f '{{index .Config.Labels "org.algosec.jira-bus.managed"}}' algosec-jira-bus)
-    [ "$LABEL" = helper ] || { echo 'Existing container is not managed by this helper; refusing to replace it.' >&2; exit 1; }
-    docker stop algosec-jira-bus >/dev/null
-fi
 DATA=$(validate_data_dir "$DATA" initialize)
-echo 'Enter Jira and ASMS settings in the wizard. Existing saved configuration is preserved.'
-docker run --rm -it --user 10001:10001 --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
-    --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
-    --memory 512m --memory-swap 512m \
-    -v "$DATA/config:/etc/algosec-jira-bus:rw" -v "$DATA/state:/var/lib/algosec-jira-bus:rw" \
-    --entrypoint python "$IMAGE" /opt/algosec-jira-bus/setup-source/scripts/setup_wizard.py \
-    --source /opt/algosec-jira-bus/setup-source --container
+if [ "$PREPARE_ONLY" -eq 1 ]; then
+    install_helpers
+    echo 'Preparation commands installed: prepare-fireflow.sh and prepare-jira.sh'
+    echo 'After preparing both systems, rerun the installer without --prepare-only.'
+    exit 0
+fi
+MOUNT_RO=ro
+MOUNT_RW=rw
+if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = Enforcing ]; then
+    MOUNT_RO=ro,Z
+    MOUNT_RW=rw,Z
+fi
+if [ -n "$CONFIG_FILE" ]; then
+    PENDING_CONFIG=$(mktemp -d "$DATA/.config.pending.XXXXXX")
+    DOCTOR_STATE=$(mktemp -d "$DATA/.doctor-state.XXXXXX")
+    chown 10001:10001 "$PENDING_CONFIG" "$DOCTOR_STATE"
+    chmod 0700 "$PENDING_CONFIG" "$DOCTOR_STATE"
+    if [ -n "$CA_FILE" ]; then
+        python3 "$STAGER" --config "$CONFIG_FILE" --secrets "$SECRETS_FILE" --ca "$CA_FILE" \
+            --target "$PENDING_CONFIG"
+    else
+        python3 "$STAGER" --config "$CONFIG_FILE" --secrets "$SECRETS_FILE" \
+            --target "$PENDING_CONFIG"
+    fi
+    echo 'Checking Jira and FireFlow APIs from the installed image.'
+    docker run --rm --user 10001:10001 --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+        --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
+        --memory 512m --memory-swap 512m \
+        -v "$PENDING_CONFIG:/etc/algosec-jira-bus:$MOUNT_RO" \
+        -v "$DOCTOR_STATE:/var/lib/algosec-jira-bus:$MOUNT_RW" \
+        "$IMAGE" doctor
+
+    python3 - "$DATA/.config.previous" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+if path.exists() or path.is_symlink():
+    raise SystemExit('A previous configuration backup exists; inspect it before upgrading')
+PY
+    HAD_CONTAINER=0
+    if docker container inspect algosec-jira-bus >/dev/null 2>&1; then
+        LABEL=$(docker inspect -f '{{index .Config.Labels "org.algosec.jira-bus.managed"}}' algosec-jira-bus)
+        [ "$LABEL" = helper ] || { echo 'Existing container is not managed by this helper; refusing to replace it.' >&2; exit 1; }
+        docker container inspect algosec-jira-bus-previous >/dev/null 2>&1 \
+            && { echo 'A previous rollback container already exists; inspect it before upgrading.' >&2; exit 1; }
+        HAD_CONTAINER=1
+        docker stop algosec-jira-bus >/dev/null
+        docker rename algosec-jira-bus algosec-jira-bus-previous
+    fi
+    if ! python3 - "$DATA" "$PENDING_CONFIG" <<'PY'
+import os, pathlib, sys
+data, pending = map(pathlib.Path, sys.argv[1:])
+current, backup = data / 'config', data / '.config.previous'
+os.rename(current, backup)
+try:
+    os.rename(pending, current)
+except BaseException:
+    os.rename(backup, current)
+    raise
+descriptor = os.open(data, os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0))
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+    then
+        if [ "$HAD_CONTAINER" -eq 1 ]; then
+            docker rename algosec-jira-bus-previous algosec-jira-bus
+            docker start algosec-jira-bus >/dev/null
+        fi
+        exit 1
+    fi
+    PENDING_CONFIG=""
+    READY=0
+    if docker run -d --name algosec-jira-bus --label org.algosec.jira-bus.managed=helper \
+        --restart unless-stopped --user 10001:10001 --read-only \
+        --tmpfs /tmp:rw,nosuid,nodev,size=64m --cap-drop ALL --security-opt no-new-privileges \
+        --pids-limit 128 --memory 512m --memory-swap 512m \
+        --log-opt max-size=10m --log-opt max-file=3 \
+        -v "$DATA/config:/etc/algosec-jira-bus:$MOUNT_RO" \
+        -v "$DATA/state:/var/lib/algosec-jira-bus:$MOUNT_RW" "$IMAGE" >/dev/null; then
+        ATTEMPT=0
+        while [ "$ATTEMPT" -lt 90 ]; do
+            if [ "$(docker inspect -f '{{.State.Running}}' algosec-jira-bus 2>/dev/null || true)" != true ]; then
+                break
+            fi
+            if docker logs algosec-jira-bus 2>&1 | grep -q '^READY: startup doctor passed\.$'; then
+                READY=1
+                break
+            fi
+            sleep 2
+            ATTEMPT=$((ATTEMPT + 2))
+        done
+    fi
+    if [ "$READY" -eq 1 ]; then
+        install_helpers
+        [ "$HAD_CONTAINER" -eq 0 ] || docker rm algosec-jira-bus-previous >/dev/null
+        python3 - "$DATA/.config.previous" "$DOCTOR_STATE" <<'PY'
+import pathlib, shutil, sys
+for raw in sys.argv[1:]:
+    path = pathlib.Path(raw)
+    if path.exists() and not path.is_symlink():
+        shutil.rmtree(path)
+PY
+        echo 'Container started. Check: docker logs --tail 100 algosec-jira-bus'
+        echo "Persistent configuration and state: $DATA"
+        exit 0
+    fi
+    echo 'New container failed to start; restoring the previous deployment.' >&2
+    docker container inspect algosec-jira-bus >/dev/null 2>&1 && docker rm -f algosec-jira-bus >/dev/null
+    python3 - "$DATA" <<'PY'
+import os, pathlib, shutil, sys
+data = pathlib.Path(sys.argv[1]); current, backup = data / 'config', data / '.config.previous'
+if current.exists() and not current.is_symlink():
+    shutil.rmtree(current)
+os.rename(backup, current)
+descriptor = os.open(data, os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0))
+try:
+    os.fsync(descriptor)
+finally:
+    os.close(descriptor)
+PY
+    if [ "$HAD_CONTAINER" -eq 1 ]; then
+        docker rename algosec-jira-bus-previous algosec-jira-bus
+        docker start algosec-jira-bus >/dev/null
+    fi
+    exit 1
+else
+    if docker container inspect algosec-jira-bus >/dev/null 2>&1; then
+        LABEL=$(docker inspect -f '{{index .Config.Labels "org.algosec.jira-bus.managed"}}' algosec-jira-bus)
+        [ "$LABEL" = helper ] || { echo 'Existing container is not managed by this helper; refusing to replace it.' >&2; exit 1; }
+        docker stop algosec-jira-bus >/dev/null
+    fi
+    echo 'Enter Jira and ASMS settings in the wizard. Existing saved configuration is preserved.'
+    docker run --rm -it --user 10001:10001 --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+        --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
+        --memory 512m --memory-swap 512m \
+        -v "$DATA/config:/etc/algosec-jira-bus:$MOUNT_RW" \
+        -v "$DATA/state:/var/lib/algosec-jira-bus:$MOUNT_RW" \
+        --entrypoint python "$IMAGE" /opt/algosec-jira-bus/setup-source/scripts/setup_wizard.py \
+        --source /opt/algosec-jira-bus/setup-source --container
+fi
 # A failed wizard exits above and leaves an existing instance stopped for inspection.
 if docker container inspect algosec-jira-bus >/dev/null 2>&1; then docker rm algosec-jira-bus >/dev/null; fi
 docker run -d --name algosec-jira-bus --label org.algosec.jira-bus.managed=helper \
@@ -262,6 +490,10 @@ docker run -d --name algosec-jira-bus --label org.algosec.jira-bus.managed=helpe
     --tmpfs /tmp:rw,nosuid,nodev,size=64m --cap-drop ALL --security-opt no-new-privileges \
     --pids-limit 128 --memory 512m --memory-swap 512m \
     --log-opt max-size=10m --log-opt max-file=3 \
-    -v "$DATA/config:/etc/algosec-jira-bus:ro" -v "$DATA/state:/var/lib/algosec-jira-bus:rw" "$IMAGE"
+    -v "$DATA/config:/etc/algosec-jira-bus:$MOUNT_RO" \
+    -v "$DATA/state:/var/lib/algosec-jira-bus:$MOUNT_RW" "$IMAGE"
+install_helpers
 echo 'Container started. Check: docker logs --tail 100 algosec-jira-bus'
+echo 'Reconfigure later: sudo bus_conf'
+echo 'Prepare remote systems: prepare-fireflow.sh and prepare-jira.sh'
 echo "Persistent configuration and state: $DATA"

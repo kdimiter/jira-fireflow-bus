@@ -1,12 +1,11 @@
 {
   "name": "algosec-network-access-field",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit && node scripts/check-manifest.mjs",
     "test": "tsx --test tests/*.test.ts",
-    "lint:forge": "forge lint",
+    "check": "tsc --noEmit && node scripts/check-manifest.mjs",
     "register": "forge register",
     "deploy:development": "forge deploy --environment development"
   },

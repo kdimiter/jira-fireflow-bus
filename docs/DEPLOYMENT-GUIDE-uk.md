@@ -38,7 +38,7 @@ Jira work type. Також створіть text fields для FireFlow Request 
 виконується один раз на адміністративній workstation, а не всередині runtime container:
 
 ```sh
-git clone --branch v0.2.0 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.2.1 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 cd forge
 npm ci --ignore-scripts
@@ -48,9 +48,11 @@ sh scripts/setup-forge.sh
 
 ### AlgoSec FireFlow API account
 
-Підготуйте існуючий окремий FireFlow API account. Майстер не створює account і не призначає
-ролі. Адміністратор має надати лише права, перевірені для обраного traffic-request template
-і точного переліку devices. Повні ASMS Admin, FireFlow Admin і `ALL_FIREWALLS` не потрібні.
+Для нового середовища `prepare-fireflow.sh` через HTTPS API створює `jira_bus_api` з правами,
+перевіреними в пілоті: ASMS Admin, FireFlow Admin і `ALL_FIREWALLS → Standard`. Він приховано
+питає credentials чинного ASMS administrator і двічі — новий унікальний пароль інтеграції.
+Згенеруйте пароль у password manager: helper не показує та не записує його у журнали.
+SSH або локальний запуск на AlgoSec не потрібні.
 
 ## 2. Docker: найпростіше встановлення
 
@@ -59,33 +61,42 @@ dependencies; на server нічого не компілюється і не з�
 
 ### 2.1. Встановіть Docker Engine
 
-Встановіть Python 3 для локальної перевірки та розпакування installer. На
-Ubuntu/Debian це `sudo apt-get install -y ca-certificates python3`, на RHEL/CentOS —
-`sudo dnf install -y ca-certificates python3`. Потім встановіть Docker за офіційною
-інструкцією для вашої ОС:
-[Ubuntu](https://docs.docker.com/engine/install/ubuntu/),
-[RHEL](https://docs.docker.com/engine/install/rhel/) або
-[CentOS](https://docs.docker.com/engine/install/centos/). Після інсталяції:
+На чистому сервері перевірте ОС та архітектуру:
 
 ```sh
-sudo systemctl enable --now docker
-sudo docker version
+cat /etc/os-release
 test "$(uname -m)" = x86_64
+getent hosts your-tenant.atlassian.net
+getent hosts asms.example.com
 ```
+
+Дозвольте вихідний TCP/443 до Jira, FireFlow, `github.com`, `download.docker.com` і package
+repositories ОС. Вхідні порти для шини не потрібні.
+
+Файл `*-docker-amd64.run` сам визначає Ubuntu/Debian або RHEL/Rocky/AlmaLinux. Якщо на
+чистому server немає залежностей, він встановлює `ca-certificates`, `curl`, `python3`, Docker
+Engine, CLI та `containerd` з офіційного Docker repository, вмикає `docker.service` і перевіряє
+daemon. Команди відповідають поточним офіційним інструкціям Docker для
+[Ubuntu](https://docs.docker.com/engine/install/ubuntu/) та
+[RHEL](https://docs.docker.com/engine/install/rhel/). Якщо Docker уже встановлений, installer
+не змінює його repository або packages.
+
+`install.sh` із source checkout для Docker не потрібен. Запускайте release‑файл `.run`: у ньому
+вже є bootstrap, перевірений image, setup wizard і container helper.
 
 ### 2.2. Завантажте й запустіть один installer
 
-Відкрийте [GitHub Release v0.2.0](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.0)
+Відкрийте [GitHub Release v0.2.1](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.1)
 і завантажте два assets:
 
-- `algosec-jira-bus-0.2.0-docker-amd64.run`
-- `algosec-jira-bus-0.2.0-docker-amd64.run.sha256`
+- `algosec-jira-bus-0.2.1-docker-amd64.run`
+- `algosec-jira-bus-0.2.1-docker-amd64.run.sha256`
 
 У каталозі із завантаженими файлами:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.2.0-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.2.0-docker-amd64.run
+sha256sum -c algosec-jira-bus-0.2.1-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run
 ```
 
 Файл `.sha256` перевіряє цілісність завантаження. Для повної перевірки release також
@@ -97,7 +108,75 @@ Installer повторно перевіряє власний payload та вбу
 майстер і створює container лише після успішного `doctor`. У майстрі введіть Jira tenant,
 API email/token, ASMS URL, FireFlow API user/password, template та дозволені devices.
 
+Для нового середовища спочатку встановіть image та незалежні `.sh` helpers:
+
+```sh
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run --prepare-only
+sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
+sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --project-key ALGO --apply
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run
+```
+
+Helpers виконують реалізацію всередині готового image і не залежать від host Python.
+Перед `prepare-jira.sh` встановіть repository Forge app. Jira helper створює/знаходить
+company-managed project, Network Access, три result fields та окремі screen schemes.
+
+Опція **Trust server certificate** за замовчуванням вимкнена. У цьому режимі діє повна TLS-
+перевірка: довірений ланцюжок CA та відповідність hostname або IP сертифікату. Увімкніть опцію
+лише для приватного/self-signed сертифіката FireFlow або підключення за IP, яке не проходить
+звичайну перевірку. Тоді CA та hostname перевірки для FireFlow замінюються pin-only перевіркою
+точного SHA-256 fingerprint сертифіката сервера. Довільний сертифікат не приймається: після
+планового renewal або заміни сертифіката виконайте
+`sudo bus_conf --refresh-certificate` і підтвердьте новий fingerprint. При помилці автоматично
+повертається попередній pin і робоча конфігурація.
+
 Введення `START` вмикає синхронізацію. Порожня відповідь зберігає `apply: false`.
+
+### 2.3. Повторна конфігурація після встановлення
+
+Щоб змінити налаштування вже встановленого Docker deployment, запустіть:
+
+```sh
+sudo bus_conf
+```
+
+Майстер щоразу повторно запитує Jira URL, API email/token, ASMS/FireFlow URL та FireFlow API
+user/password. Введіть актуальні значення, навіть якщо змінюєте лише один параметр. Майстер не
+показує збережені tokens і застосовує нову конфігурацію після перевірки з'єднань.
+
+### 2.4. Автоматичне встановлення без майстра
+
+На production-сервері ChatGPT, агент і MCP не потрібні. Підготуйте `bus.json` з
+`env:JIRA_API_TOKEN` та `env:ASMS_API_PASSWORD`, а також приватний `secrets.json`, який містить
+рівно ці два ключі. Потім виконайте:
+
+```sh
+sudo install -d -m 0700 /root/jira-fireflow-deploy
+sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run \
+  --config-file /root/jira-fireflow-deploy/bus.json \
+  --secrets-file /root/jira-fireflow-deploy/secrets.json
+```
+
+Файли мають бути regular files, належати `root`, мати один hard link і режим рівно `0600`.
+Installer перевіряє їх до `docker load`, запускає `doctor` із тимчасовим state до зупинки
+чинного container, атомарно встановлює конфіг і повертає попередній container та config, якщо
+новий запуск не вдався.
+
+Якщо FireFlow використовує приватний CA, додайте третій підготовлений файл:
+
+```sh
+sudo install -o root -g root -m 0600 fireflow-ca.pem /root/jira-fireflow-deploy/
+sudo sh algosec-jira-bus-0.2.1-docker-amd64.run \
+  --config-file /root/jira-fireflow-deploy/bus.json \
+  --secrets-file /root/jira-fireflow-deploy/secrets.json \
+  --ca-file /root/jira-fireflow-deploy/fireflow-ca.pem
+```
+
+У `fireflow.base_url` використовуйте FQDN із SAN сертифіката. Членство Linux-сервера в Active
+Directory не потрібне: потрібні лише DNS-резолвінг цього FQDN, TCP/443 і довіра до переданого
+CA. Варіант із `--ca-file` зберігає повну перевірку CA та hostname; pin-only режим
+**Trust server certificate** стосується інтерактивної конфігурації через `sudo bus_conf`.
 
 Перевірка:
 
@@ -132,12 +211,12 @@ sudo dnf install -y ca-certificates python3.11
 python3.11 -c 'import sys, venv; assert sys.version_info >= (3, 11)'
 ```
 
-З [GitHub Release v0.2.0](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.0)
-завантажте `algosec-jira-bus-0.2.0-linux.run` і сусідній `.sha256`, потім:
+З [GitHub Release v0.2.1](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.1)
+завантажте `algosec-jira-bus-0.2.1-linux.run` і сусідній `.sha256`, потім:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.2.0-linux.run.sha256
-sudo sh algosec-jira-bus-0.2.0-linux.run
+sha256sum -c algosec-jira-bus-0.2.1-linux.run.sha256
+sudo sh algosec-jira-bus-0.2.1-linux.run
 sudo systemctl status algosec-jira-bus.timer algosec-jira-bus-reconcile.timer
 sudo journalctl -u algosec-jira-bus.service -n 100 --no-pager
 ```

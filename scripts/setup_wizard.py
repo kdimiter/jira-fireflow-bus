@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import pwd
 import re
+import socket
+import ssl
 import subprocess
 import sys
 import stat
@@ -151,7 +153,9 @@ def validate_worktype(project_data, worktype):
         raise ValueError('Work type must belong to the selected project and cannot be a subtask')
 
 
-def build_config(template, jira_url, email, project, issue_type, ff_url, ff_user, devices, pin, fields):
+def build_config(template, jira_url, email, project, issue_type, ff_url, ff_user,
+                 devices, pin, fields, *, trust_server_certificate=False,
+                 existing_ca_file=None):
     if not re.fullmatch('[A-Z][A-Z0-9_]{1,20}', project):
         raise ValueError('Invalid project key')
     if not issue_type.isdecimal():
@@ -160,6 +164,10 @@ def build_config(template, jira_url, email, project, issue_type, ff_url, ff_user
         raise ValueError('Device tree names are required')
     if pin and not re.fullmatch('[0-9a-fA-F]{64}', pin):
         raise ValueError('Certificate SHA256 must be 64 hex characters')
+    if type(trust_server_certificate) is not bool:
+        raise ValueError('Trust server certificate must be true or false')
+    if trust_server_certificate and (not pin or pin.lower() == '0' * 64):
+        raise ValueError('Trust server certificate requires a captured certificate SHA256')
     if not email.strip() or not ff_user.strip():
         raise ValueError('API email and FireFlow username are required')
     if set(fields) != {'structured', 'id', 'status', 'owner'} or any(not re.fullmatch(r'customfield_[0-9]+', v) for v in fields.values()) or len(set(fields.values())) != 4:
@@ -169,23 +177,52 @@ def build_config(template, jira_url, email, project, issue_type, ff_url, ff_user
                      jql=f'project = {project} AND issuetype = {issue_type} AND status = "To Do" ORDER BY created ASC')
     c['fireflow'].update(base_url=origin(ff_url), username=ff_user, devices=devices, allowed_devices=devices)
     c['fireflow'].pop('tls_certificate_sha256', None)
+    c['fireflow'].pop('tls_pin_only', None)
+    c['fireflow'].pop('ca_file', None)
     if pin:
         c['fireflow']['tls_certificate_sha256'] = pin.lower()
+    if trust_server_certificate:
+        c['fireflow']['tls_pin_only'] = True
+    elif existing_ca_file:
+        c['fireflow']['ca_file'] = existing_ca_file
     c['mapping']['structured']['field'] = fields['structured']
     c['mirror']['result_fields'] = {k: fields[k] for k in ('id', 'status', 'owner')}
     c['apply'] = False
     return c
 
 
+def capture_certificate_sha256(ff_url, timeout=10):
+    """Capture the presented leaf certificate for explicit administrator trust."""
+    parsed = urlsplit(origin(ff_url))
+    host, port = parsed.hostname, parsed.port or 443
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    if hasattr(ssl, 'OP_NO_COMPRESSION'):
+        context.options |= ssl.OP_NO_COMPRESSION
+    with socket.create_connection((host, port), timeout=timeout) as raw:
+        with context.wrap_socket(raw, server_hostname=host) as connection:
+            certificate = connection.getpeercert(binary_form=True)
+    if not certificate:
+        raise ValueError('ASMS did not present a TLS certificate')
+    import hashlib
+    return hashlib.sha256(certificate).hexdigest()
+
+
 def collect_fireflow_credentials():
     """Collect an existing dedicated integration account."""
     ff_url = origin(ask('ASMS URL'))
-    pin = ask('Verified ASMS certificate SHA256 (blank = public/system CA)')
-    if pin and not re.fullmatch('[0-9a-fA-F]{64}', pin):
-        raise ValueError('Certificate SHA256 must be 64 hex characters')
+    trust = ask('Trust server certificate? [y/N]', 'N').casefold() in ('y', 'yes')
+    pin = ''
+    if trust:
+        pin = capture_certificate_sha256(ff_url)
+        print('ASMS certificate SHA256:', pin)
+        if ask('Type TRUST to pin this exact certificate') != 'TRUST':
+            raise ValueError('Server certificate was not trusted')
     ff_user = ask('FireFlow API user', 'jira_bus_api')
     password = getpass.getpass('Existing FireFlow API password: ')
-    return ff_url, ff_user, password, pin
+    return ff_url, ff_user, password, pin, trust
 
 
 def run_doctor(config):
@@ -261,10 +298,41 @@ def finish_container(config, settings, account):
     return 0
 
 
+def refresh_container_certificate(config, settings, account):
+    """Rotate a pin-only FireFlow certificate without re-entering API secrets."""
+    fireflow = settings.get('fireflow') if isinstance(settings, dict) else None
+    if not isinstance(fireflow, dict) or not fireflow.get('base_url'):
+        raise ValueError('FireFlow URL is not configured')
+    pin = capture_certificate_sha256(fireflow['base_url'])
+    print('New ASMS certificate SHA256:', pin)
+    if ask('Type TRUST to replace the pinned server certificate') != 'TRUST':
+        raise ValueError('New server certificate was not trusted')
+    fireflow['tls_certificate_sha256'] = pin
+    fireflow['tls_pin_only'] = True
+    fireflow.pop('ca_file', None)
+    write_private(config, json.dumps(settings, indent=2, ensure_ascii=False) + '\n',
+                  account.pw_uid, account.pw_gid)
+    secrets = private_json(config.parent / 'secrets.json', account.pw_uid,
+                           max_bytes=64 * 1024)
+    env = dict(os.environ, **secrets)
+    result = subprocess.run([
+        sys.executable, '-m', 'algosec_jira_bus.bus', '--config', str(config),
+        '--state-dir', '/var/lib/algosec-jira-bus', 'doctor'], env=env)
+    if result.returncode:
+        print('NOT READY: doctor rejected the new certificate.')
+        return 1
+    print('New FireFlow certificate pinned and connectivity doctor passed.')
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--container', action='store_true', help='Configure mounted files without systemd')
+    parser.add_argument('--reconfigure', action='store_true',
+                        help='Replace an existing configuration after revalidating both APIs')
+    parser.add_argument('--refresh-certificate', action='store_true',
+                        help='Capture and validate a replacement FireFlow certificate pin')
     args = parser.parse_args()
     if sys.platform != 'linux' or (not args.container and os.geteuid() != 0):
         raise ValueError('Run on Linux as root')
@@ -284,7 +352,11 @@ def main():
         existing = {}
     validate_secret_references(existing)
     configured = existing.get('mapping', {}).get('structured') and 'YOUR-' not in existing.get('jira', {}).get('base_url', '')
-    if configured:
+    if args.refresh_certificate:
+        if not args.container or not configured:
+            raise ValueError('Certificate refresh requires an existing container configuration')
+        return refresh_container_certificate(config, existing, account)
+    if configured and not args.reconfigure:
         print('Existing configuration detected; preserving it and secrets.')
         return finish(config, existing, account)
     secrets_path = folder / ('secrets.json' if args.container else 'secrets.env')
@@ -293,8 +365,8 @@ def main():
                                              max_bytes=64 * 1024)
     except FileNotFoundError:
         existing_secrets = ''
-    if any(line.strip() and not line.lstrip().startswith('#')
-           for line in existing_secrets.splitlines()):
+    if not args.reconfigure and any(line.strip() and not line.lstrip().startswith('#')
+                                    for line in existing_secrets.splitlines()):
         raise ValueError('Existing secrets.env preserved. Complete bus.json using the guide, then rerun; wizard will not replace existing credentials.')
     url = origin(ask('Jira site URL'))
     email = ask('Jira API account email')
@@ -312,11 +384,16 @@ def main():
     fields = {'structured': choose_field(available, 'Мережеві доступи AlgoSec', 'object')}
     for k, name in [('id', 'FireFlow Request ID'), ('status', 'FireFlow Status'), ('owner', 'FireFlow Owner')]:
         fields[k] = choose_field(available, name, 'string')
-    ff_url, ff_user, password, pin = collect_fireflow_credentials()
+    ff_url, ff_user, password, pin, trust_server_certificate = collect_fireflow_credentials()
     devices = [v.strip() for v in ask('Device tree names (comma-separated)').split(',') if v.strip()]
     template = json.loads(read_regular_text(
         args.source / 'examples/jira-sync-basic-structured.json'))
-    settings = build_config(template, url, email, project, worktype, ff_url, ff_user, devices, pin, fields)
+    existing_ca_file = (existing.get('fireflow', {}).get('ca_file')
+                        if isinstance(existing.get('fireflow'), dict) else None)
+    settings = build_config(
+        template, url, email, project, worktype, ff_url, ff_user, devices, pin,
+        fields, trust_server_certificate=trust_server_certificate,
+        existing_ca_file=existing_ca_file)
     secrets = (json.dumps({'JIRA_API_TOKEN': token, 'ASMS_API_PASSWORD': password}) + '\n' if args.container
                else secret_line('JIRA_API_TOKEN', token) + secret_line('ASMS_API_PASSWORD', password))
     # Preserve original installer placeholders, too; never replace silently on a rerun.

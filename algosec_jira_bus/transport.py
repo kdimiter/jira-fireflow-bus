@@ -179,10 +179,24 @@ def _decode(response):
 
 
 def _tls_context(config):
-    context = ssl.create_default_context(cafile=config.get('ca_file'))
+    pin_only = config.get('tls_pin_only', False)
+    if type(pin_only) is not bool:
+        raise ValueError('tls_pin_only must be true or false')
+    pin = config.get('tls_certificate_sha256')
+    if pin_only:
+        if config.get('ca_file'):
+            raise ValueError('tls_pin_only cannot be combined with ca_file')
+        if (not isinstance(pin, str) or not re.fullmatch(r'[a-f0-9]{64}', pin)
+                or pin == '0' * 64):
+            raise ValueError('Trust server certificate requires an exact SHA256 certificate pin')
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    else:
+        context = ssl.create_default_context(cafile=config.get('ca_file'))
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
     context.minimum_version = ssl.TLSVersion.TLSv1_2
-    context.check_hostname = True
-    context.verify_mode = ssl.CERT_REQUIRED
     if hasattr(ssl, 'OP_NO_COMPRESSION'):
         context.options |= ssl.OP_NO_COMPRESSION
     return context

@@ -59,6 +59,15 @@ class DockerRuntimeTests(unittest.TestCase):
             self.assertEqual(r.serve(), 1)
             run.assert_called_once_with(['doctor'], 300)
 
+    def test_successful_doctor_emits_container_readiness_marker(self):
+        runner = m.Runner()
+        with patch.object(runner, 'run', return_value=0), \
+                patch.object(runner.stop, 'wait', side_effect=lambda _seconds: runner.stop.set()):
+            with patch('builtins.print') as output:
+                self.assertEqual(runner.serve(), 0)
+        self.assertTrue(any(call.args and call.args[0] == 'READY: startup doctor passed.'
+                            for call in output.call_args_list))
+
     def test_scheduler_serializes_poll_and_reconcile(self):
         r = m.Runner(); actions = []
         def run(action, timeout):

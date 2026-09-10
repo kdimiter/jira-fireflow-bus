@@ -62,6 +62,7 @@ class Runner:
         if self.run(['doctor'], 300):
             print('NOT READY: startup doctor failed; no polling started.', flush=True)
             return 1
+        print('READY: startup doctor passed.', flush=True)
         next_reconcile = time.monotonic() + reconcile_seconds
         while not self.stop.is_set():
             code = self.run(['poll'], 300)

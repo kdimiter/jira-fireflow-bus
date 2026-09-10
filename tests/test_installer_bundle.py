@@ -268,7 +268,7 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
         self.helper = self.base / 'install-docker.sh'
         self.helper.write_text(
             '#!/bin/sh\nprintf "%s\\n" "$@" > "$DOCKER_INSTALLER_TEST_LOG"\n')
-        self.bundle = self.base / 'algosec-jira-bus-0.2.0-docker-amd64.run'
+        self.bundle = self.base / 'algosec-jira-bus-0.2.1-docker-amd64.run'
         docker_builder.build(self.image, self.helper, self.bundle)
 
     def run_bundle(self, *args, env=None):
@@ -284,7 +284,22 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
             'algosec-jira-bus-docker-amd64.tar.gz',
             'algosec-jira-bus-docker-amd64.tar.gz.sha256',
             'install-docker.sh',
+            'stage-config.py',
+            'bus_conf',
+            'prepare-fireflow.sh',
+            'prepare-jira.sh',
         })
+        self.assertEqual((target / 'bus_conf').read_bytes(),
+                         (ROOT / 'packaging/docker/bus_conf').read_bytes())
+
+    def test_one_file_installer_bootstraps_supported_linux_dependencies(self):
+        header = self.bundle.read_bytes().split(docker_builder.MARKER, 1)[0].decode()
+        for command in ('apt-get install -y ca-certificates curl python3',
+                        'dnf -y install ca-certificates curl python3 dnf-plugins-core',
+                        'docker-ce docker-ce-cli containerd.io',
+                        'systemctl enable --now docker'):
+            self.assertIn(command, header)
+        self.assertLess(header.index('apt-get install'), header.index('exec python3'))
 
     def test_payload_tamper_is_rejected_before_extraction(self):
         data = bytearray(self.bundle.read_bytes())
@@ -298,8 +313,18 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
 
     def test_run_dispatches_to_embedded_installer_with_verified_image(self):
         log = self.base / 'install.log'
+        bin_dir = self.base / 'bootstrap-bin'
+        bin_dir.mkdir()
+        (bin_dir / 'python3').symlink_to(sys.executable)
+        for name, body in (('uname', 'echo Linux'), ('id', 'echo 0'),
+                           ('docker', 'exit 0'), ('systemctl', 'exit 0')):
+            path = bin_dir / name
+            path.write_text('#!/bin/sh\n' + body + '\n')
+            path.chmod(0o700)
         result = self.run_bundle('--data-dir', '/srv/jira-bus',
-                                 env={**os.environ, 'DOCKER_INSTALLER_TEST_LOG': str(log)})
+                                 env={**os.environ,
+                                      'PATH': str(bin_dir) + os.pathsep + os.environ['PATH'],
+                                      'DOCKER_INSTALLER_TEST_LOG': str(log)})
         self.assertEqual(result.returncode, 0, result.stderr)
         arguments = log.read_text().splitlines()
         self.assertEqual(arguments[0], '--image-archive')
