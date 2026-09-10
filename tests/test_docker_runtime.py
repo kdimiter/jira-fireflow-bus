@@ -18,7 +18,7 @@ class DockerRuntimeTests(unittest.TestCase):
     def test_image_contains_only_the_self_contained_bus_runtime(self):
         dockerfile = (ROOT / 'packaging/docker/Dockerfile').read_text()
         self.assertIn('python:3.11.16-alpine3.23@sha256:', dockerfile)
-        self.assertIn("apk upgrade --no-cache 'libuuid=2.41.6-r1'", dockerfile)
+        self.assertIn("apk add --upgrade --no-cache 'libuuid=2.41.6-r1'", dockerfile)
         self.assertIn('pip install --no-cache-dir --no-deps --no-build-isolation .', dockerfile)
         self.assertIn('/usr/local/lib/python3.11/site-packages/pip', dockerfile)
         self.assertIn('/usr/local/lib/python3.11/site-packages/setuptools', dockerfile)

@@ -15,7 +15,7 @@ COPY scripts/setup_wizard.py ./scripts/setup_wizard.py
 COPY examples/jira-sync-basic-structured.json ./examples/jira-sync-basic-structured.json
 COPY LICENSE /licenses/Apache-2.0.txt
 COPY packaging/docker/scheduler.py /usr/local/libexec/algosec-jira-bus-scheduler.py
-RUN apk upgrade --no-cache 'libuuid=2.41.6-r1' \
+RUN apk add --upgrade --no-cache 'libuuid=2.41.6-r1' \
  && python -m pip install --no-cache-dir --no-deps --no-build-isolation . \
  && rm -rf pyproject.toml algosec_jira_bus algosec_jira_bus.egg-info \
  && rm -rf /usr/local/lib/python3.11/site-packages/pip \
