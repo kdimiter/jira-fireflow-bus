@@ -71,7 +71,7 @@ getent hosts asms.example.com
 Дозвольте вихідний TCP/443 до Jira, FireFlow, `github.com`, `download.docker.com` і package
 repositories ОС. Вхідні порти для шини не потрібні.
 
-Файл `*-docker-amd64.run` сам визначає Ubuntu/Debian або RHEL/Rocky/AlmaLinux/CentOS. Якщо на
+Файл `*-docker-amd64.run` сам визначає Ubuntu/Debian або RHEL/Rocky/AlmaLinux. Якщо на
 чистому server немає залежностей, він встановлює `ca-certificates`, `curl`, `python3`, Docker
 Engine, CLI та `containerd` з офіційного Docker repository, вмикає `docker.service` і перевіряє
 daemon. Команди відповідають поточним офіційним інструкціям Docker для

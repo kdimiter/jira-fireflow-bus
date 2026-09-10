@@ -28,7 +28,7 @@ sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
 ```
 
-On a clean Ubuntu/Debian or RHEL/Rocky/AlmaLinux/CentOS host, the verified `.run` installer
+On a clean Ubuntu/Debian or RHEL/Rocky/AlmaLinux host, the verified `.run` installer
 installs Python 3 and Docker Engine from the OS and official Docker repositories when they are
 missing. Its default wizard asks for the Jira URL, API email/token, FireFlow FQDN, API account,
 template, devices, and optional private CA before it runs the connectivity doctor.

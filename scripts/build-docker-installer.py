@@ -41,7 +41,7 @@ EOF
                     apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
                 fi
                 ;;
-            rhel|rocky|almalinux|centos)
+            rhel|rocky|almalinux)
                 dnf -y install ca-certificates curl python3 dnf-plugins-core
                 if ! command -v docker >/dev/null 2>&1; then
                     case "$ID" in rhel) DOCKER_RPM_FAMILY=rhel;; *) DOCKER_RPM_FAMILY=centos;; esac
