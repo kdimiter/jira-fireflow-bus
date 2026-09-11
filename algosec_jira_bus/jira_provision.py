@@ -6,6 +6,7 @@ import re
 import urllib.error
 
 from .transport import https_origin, request_json
+from .console import ConsoleError, prompt
 
 
 class JiraProvisionError(ValueError):
@@ -210,9 +211,9 @@ def main(argv=None):
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args(argv)
     base_url = https_origin(args.base_url)
-    email = input('Jira administrator email: ').strip()
-    token = getpass.getpass('Jira administrator API token: ')
-    if not email or not token or any(c in email + token for c in '\r\n\x00'):
+    email = prompt('Jira administrator email: ').strip()
+    token = prompt('Jira administrator API token: ', secret=True)
+    if not email or not token or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in email + token):
         raise JiraProvisionError('Jira credentials must be nonempty single-line values')
     authorization = base64.b64encode((email + ':' + token).encode()).decode('ascii')
     headers = {'Authorization': 'Basic ' + authorization}
@@ -235,6 +236,6 @@ def main(argv=None):
 if __name__ == '__main__':
     try:
         raise SystemExit(main())
-    except JiraProvisionError as error:
+    except (JiraProvisionError, ConsoleError) as error:
         print('Jira preparation stopped:', str(error))
         raise SystemExit(1)

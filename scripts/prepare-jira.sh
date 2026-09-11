@@ -5,7 +5,7 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 unset PYTHONPATH PYTHONHOME DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
 CONTAINER=algosec-jira-bus
-IMAGE=algosec-jira-bus:0.2.1
+IMAGE=algosec-jira-bus:0.2.2
 if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
     IMAGE=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER")
 fi
