@@ -214,7 +214,7 @@ def jira_attribution(issue, origin):
 
 
 def jira_creator_requestor(issue):
-    """Return the Jira creator email used as the FireFlow Requestor identity."""
+    """Return a valid Jira creator email, or None when Jira hides/omits it."""
     fields = issue.get('fields') or {}
     creator = fields.get('creator')
     creator = creator if isinstance(creator, dict) else {}
@@ -222,9 +222,7 @@ def jira_creator_requestor(issue):
     if (not isinstance(email, str) or email != email.strip()
             or len(email) > 254
             or not REQUESTOR_EMAIL.fullmatch(email)):
-        raise MappingError(
-            'Jira creator email is unavailable or invalid; FireFlow Requestor '
-            'cannot be attributed safely')
+        return None
     return email
 
 
@@ -268,10 +266,12 @@ def build(issue, mapping, template, devices, jira_origin=None):
                            'for %d; split it' % (MAX_TRAFFIC_LINES, len(traffic)))
 
     summary = plain((issue.get('fields') or {}).get('summary'))[:200]
+    fields = [{'name': 'subject', 'values': ['%s: %s' % (key, summary)]},
+              {'name': 'devices', 'values': list(devices)}]
+    if requestor:
+        fields.insert(1, {'name': 'Requestor', 'values': [requestor]})
     request = {'template': template,
-                 'fields': [{'name': 'subject', 'values': ['%s: %s' % (key, summary)]},
-                            {'name': 'Requestor', 'values': [requestor]},
-                            {'name': 'devices', 'values': list(devices)}],
+                 'fields': fields,
                  'traffic': traffic}
     description = domain['justification'] if domain else ''
     if jira_origin:
@@ -682,17 +682,6 @@ def validate_mirror(config):
         raise MappingError('result_fields maps id/status/owner to Jira custom text fields')
     if len(set(result.values())) != len(result):
         raise MappingError('Result field IDs must be distinct')
-    owner_assignees = config.get('owner_assignees', {})
-    if (not isinstance(owner_assignees, dict) or len(owner_assignees) > 100
-            or any(not isinstance(owner, str) or not owner.strip()
-                   or len(owner) > 256 or owner != owner.strip()
-                   or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in owner)
-                   or not isinstance(account_id, str)
-                   or not re.fullmatch(r'[A-Za-z0-9:._-]{1,256}', account_id)
-                   for owner, account_id in owner_assignees.items())
-            or len({owner.casefold() for owner in owner_assignees}) != len(owner_assignees)):
-        raise MappingError(
-            'mirror.owner_assignees must map unique FireFlow owner names to Jira accountIds')
     rules = config.get('outcome_rules', [])
     if not isinstance(rules, list):
         raise MappingError('mirror.outcome_rules must be a list')
@@ -723,15 +712,7 @@ def deliver_fields(key, payload, state, jira, failures):
 
 def result_fields(config, identifier, status, details):
     values = {'id': str(identifier), 'status': status, 'owner': details.get('Owner')}
-    result = {field: values[name] for name, field in config.get('result_fields', {}).items()}
-    owner = details.get('Owner')
-    if isinstance(owner, str) and owner.strip():
-        account_id = next((account for name, account in
-                           config.get('owner_assignees', {}).items()
-                           if name.casefold() == owner.strip().casefold()), None)
-        if account_id:
-            result['assignee'] = {'accountId': account_id}
-    return result
+    return {field: values[name] for name, field in config.get('result_fields', {}).items()}
 
 
 def workflow_transition(config, status, details):

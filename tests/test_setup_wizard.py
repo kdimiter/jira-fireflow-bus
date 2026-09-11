@@ -14,40 +14,6 @@ spec.loader.exec_module(wizard)
 
 
 class SetupWizardTests(unittest.TestCase):
-    def test_owner_assignee_menu_selects_only_an_assignable_jira_account(self):
-        settings = {
-            'apply': True,
-            'jira': {'base_url': 'https://example.atlassian.net',
-                     'email': 'api@example.test', 'token_ref': 'env:JIRA_API_TOKEN',
-                     'jql': 'project = NET AND status = "To Do"'},
-            'mirror': {},
-        }
-        answers = iter(('admin', 'Dmytro', '1', ''))
-        account = SimpleNamespace(pw_uid=1, pw_gid=2)
-
-        class Jira:
-            def __init__(self, config): self.config = config
-            def assignable_users(self, project, query=None, account_id=None,
-                                 max_results=50):
-                self.assertions = (project, query, account_id)
-                return [{'accountId': '712020:abc-123',
-                         'displayName': 'Dmytro Korobko'}]
-
-        with patch.object(wizard, 'ask', side_effect=lambda *_a, **_k: next(answers)), \
-             patch.object(wizard, 'private_json', return_value={
-                 'JIRA_API_TOKEN': 'token', 'ASMS_API_PASSWORD': 'password'}), \
-             patch.object(wizard, 'write_private') as write, \
-             patch.object(wizard.subprocess, 'run',
-                          return_value=SimpleNamespace(returncode=0)), \
-             patch('algosec_jira_bus.jira.Jira', Jira):
-            self.assertEqual(wizard.configure_owner_assignees(
-                Path('/config/bus.json'), settings, account), 0)
-        saved = json.loads(write.call_args.args[1])
-        self.assertTrue(saved['apply'])
-        self.assertEqual(saved['jira']['project_key'], 'NET')
-        self.assertEqual(saved['mirror']['owner_assignees'],
-                         {'admin': '712020:abc-123'})
-
     def test_jira_to_fireflow_menu_preserves_existing_settings_and_secrets(self):
         settings = {
             'apply': True,

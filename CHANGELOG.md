@@ -1,11 +1,12 @@
 # Changelog
 
-## 0.3.4
+## 0.3.5
 
-- Optionally map FireFlow Owner names to verified, project-assignable Jira accounts and update
-  the system Assignee together with the mirrored FireFlow result fields.
-- Add `sudo bus_conf --owner-assignees` so mappings can be managed without editing private JSON
-  or re-entering API credentials.
+- Create the FireFlow request without a `Requestor` field when Jira hides or omits the
+  creator email; a missing email no longer refuses or retries an otherwise valid request.
+- Keep sending a validated Jira creator email as FireFlow `Requestor` when it is available.
+- Remove the optional FireFlow Owner to Jira Assignee mapping introduced in the superseded
+  0.3.4 prerelease.
 
 ## 0.3.3
 

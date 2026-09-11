@@ -13,7 +13,6 @@ from .transport import https_origin, request_json
 
 KEY = re.compile(r'[A-Z][A-Z0-9_]{0,20}-[0-9]{1,10}')
 ISSUE_ID = re.compile(r'[1-9][0-9]{0,19}')
-ACCOUNT_ID = re.compile(r'[A-Za-z0-9:._-]{1,256}')
 COMMENT_ORIGIN_PROPERTY = 'algosec-jira-bus.origin'
 
 
@@ -280,56 +279,15 @@ class Jira:
         reply = self._call('/rest/api/3/issue/%s/transitions' % key)
         return [str(item.get('name') or '') for item in (reply or {}).get('transitions') or []]
 
-    def assignable_users(self, project, query=None, account_id=None, max_results=50):
-        """Find Jira users that can be assigned work in one project."""
-        if not isinstance(project, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,20}', project):
-            raise JiraError('Invalid Jira project key')
-        if type(max_results) is not int or not 1 <= max_results <= 1000:
-            raise JiraError('Invalid assignable-user result limit')
-        parameters = {'project': project, 'maxResults': max_results}
-        if query is not None:
-            if (not isinstance(query, str) or not query.strip() or len(query) > 256
-                    or any(ord(char) < 32 for char in query)):
-                raise JiraError('Invalid Jira user search')
-            parameters['query'] = query.strip()
-        if account_id is not None:
-            if not isinstance(account_id, str) or not ACCOUNT_ID.fullmatch(account_id):
-                raise JiraError('Invalid Jira accountId')
-            parameters['accountId'] = account_id
-        reply = self._call('/rest/api/3/user/assignable/search', query=parameters)
-        if not isinstance(reply, list) or any(
-                not isinstance(user, dict)
-                or not isinstance(user.get('accountId'), str)
-                or not ACCOUNT_ID.fullmatch(user['accountId'])
-                or not isinstance(user.get('displayName'), str)
-                or not user['displayName'] or len(user['displayName']) > 256
-                or any(ord(char) < 32 or 127 <= ord(char) <= 159
-                       for char in user['displayName'])
-                or (user.get('emailAddress') is not None
-                    and (not isinstance(user['emailAddress'], str)
-                         or len(user['emailAddress']) > 320
-                         or any(ord(char) < 32 or 127 <= ord(char) <= 159
-                                for char in user['emailAddress'])))
-                for user in reply):
-            raise JiraError('Unexpected assignable-user response')
-        return [user for user in reply if user.get('active') is not False]
-
     def update_fields(self, key, fields):
-        """Set result fields and an explicitly mapped assignee; replay is safe."""
+        """Set configured text result fields; replaying the same values is safe."""
         if not KEY.fullmatch(key or ''):
             raise JiraError('Invalid issue key')
-        if not isinstance(fields, dict) or not fields:
-            raise JiraError('Result fields must be custom text fields or assignee')
-        for name, value in fields.items():
-            if re.fullmatch(r'customfield_[0-9]+', name):
-                if value is not None and not isinstance(value, str):
-                    raise JiraError('Result fields must be custom text fields or assignee')
-                continue
-            if (name != 'assignee' or not isinstance(value, dict)
-                    or set(value) != {'accountId'}
-                    or not isinstance(value['accountId'], str)
-                    or not ACCOUNT_ID.fullmatch(value['accountId'])):
-                raise JiraError('Result fields must be custom text fields or assignee')
+        if not isinstance(fields, dict) or not fields or any(
+            not re.fullmatch(r'customfield_[0-9]+', name) or
+            (value is not None and not isinstance(value, str))
+            for name, value in fields.items()):
+            raise JiraError('Result fields must be custom text fields')
         return self._call('/rest/api/3/issue/%s' % key,
                           body={'fields': fields}, method='PUT')
 

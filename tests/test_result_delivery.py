@@ -4,46 +4,6 @@ from pathlib import Path
 from algosec_jira_bus.sync import State, mirror
 
 class ResultDelivery(unittest.TestCase):
-    def test_owner_mapping_updates_the_jira_assignee_with_result_fields(self):
-        with tempfile.TemporaryDirectory() as root:
-            state = State(Path(root)/'state.json')
-            state.record('NET-1', {'change_request_id': 49, 'status': None})
-            writes = []
-            class Jira:
-                def update_fields(self, key, fields): writes.append((key, fields))
-                def comment(self, key, text): pass
-            class FF:
-                def get(self, identifier):
-                    return {'response': {'id': identifier, 'status': 'plan',
-                                         'fields': [{'name': 'Owner',
-                                                     'values': ['Alice.Admin']}]}}
-            settings = {'jira': {}, 'mirror': {
-                'result_fields': {'owner': 'customfield_123'},
-                'owner_assignees': {'alice.admin': '712020:abc-123'}}}
-            mirror(settings, FF(), state, Jira(), dry_run=False, log=lambda *a: None)
-            self.assertEqual(writes, [('NET-1', {
-                'customfield_123': 'Alice.Admin',
-                'assignee': {'accountId': '712020:abc-123'}})])
-
-    def test_unmapped_owner_does_not_change_the_jira_assignee(self):
-        with tempfile.TemporaryDirectory() as root:
-            state = State(Path(root)/'state.json')
-            state.record('NET-1', {'change_request_id': 49, 'status': None})
-            writes = []
-            class Jira:
-                def update_fields(self, key, fields): writes.append(fields)
-                def comment(self, key, text): pass
-            class FF:
-                def get(self, identifier):
-                    return {'response': {'id': identifier, 'status': 'plan',
-                                         'fields': [{'name': 'Owner',
-                                                     'values': ['Unknown']}]}}
-            settings = {'jira': {}, 'mirror': {
-                'result_fields': {'owner': 'customfield_123'},
-                'owner_assignees': {'alice': '712020:abc-123'}}}
-            mirror(settings, FF(), state, Jira(), dry_run=False, log=lambda *a: None)
-            self.assertEqual(writes, [{'customfield_123': 'Unknown'}])
-
     def test_saved_fields_are_delivered_before_fireflow_read(self):
         with tempfile.TemporaryDirectory() as root:
             state = State(Path(root)/'state.json')
