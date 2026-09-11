@@ -38,7 +38,7 @@ Jira work type. Також створіть text fields для FireFlow Request 
 виконується один раз на адміністративній workstation, а не всередині runtime container:
 
 ```sh
-git clone --branch v0.2.6 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.0 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 cd forge
 npm ci --ignore-scripts
@@ -68,7 +68,7 @@ project, використайте візуальний додаток А піс�
 На адміністративній робочій станції потрібні Node.js 22, npm, Forge CLI та акаунт із правами розгортання Forge і встановлення застосунку на потрібний Jira site. Runtime API-token шини для цього не використовується.
 
 ```sh
-git clone --branch v0.2.6 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.0 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 npm install --global @forge/cli
 sh scripts/setup-forge.sh
@@ -194,17 +194,17 @@ daemon. Команди відповідають поточним офіційн�
 
 ### 2.2. Завантажте й запустіть один installer
 
-Відкрийте [GitHub Release v0.2.6](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.6)
+Відкрийте [GitHub Release v0.3.0](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.0)
 і завантажте два assets:
 
-- `algosec-jira-bus-0.2.6-docker-amd64.run`
-- `algosec-jira-bus-0.2.6-docker-amd64.run.sha256`
+- `algosec-jira-bus-0.3.0-docker-amd64.run`
+- `algosec-jira-bus-0.3.0-docker-amd64.run.sha256`
 
 У каталозі із завантаженими файлами:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.2.6-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run
+sha256sum -c algosec-jira-bus-0.3.0-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run
 ```
 
 ![Перевірка та запуск готового Docker installer із синтетичними адресами](screenshots/21-docker-installer.png)
@@ -225,8 +225,8 @@ API email/token, ASMS URL та FireFlow API user/password. Після успіш
 і сусідній `.sha256`, потім виконайте:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.2.6-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run --upgrade
+sha256sum -c algosec-jira-bus-0.3.0-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run --upgrade
 ```
 
 Режим `--upgrade` не запускає wizard і не переписує `secrets.json` або state. Новий image
@@ -249,10 +249,10 @@ sudo bus_update ./algosec-jira-bus-VERSION-docker-amd64.run \
 Для нового середовища спочатку встановіть image та незалежні `.sh` helpers:
 
 ```sh
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run --prepare-only
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --project-key ALGO --apply
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run
 ```
 
 FireFlow API автентифікує інтеграцію за **username/password** і видає тимчасовий
@@ -315,7 +315,93 @@ sudo bus_conf
 user/password. Введіть актуальні значення, навіть якщо змінюєте лише один параметр. Майстер не
 показує збережені tokens і застосовує нову конфігурацію після перевірки з'єднань.
 
-### 2.5. Автоматичне встановлення без майстра
+### 2.5. Jira → FireFlow: коментарі та зміни статусів
+
+Після успішного встановлення викличте окреме меню:
+
+```sh
+sudo bus_conf --jira-sync
+```
+
+Меню не запитує повторно Jira token або FireFlow password. Воно дозволяє:
+
+1. увімкнути або вимкнути напрямок Jira → FireFlow;
+2. увімкнути внутрішні коментарі в FireFlow History;
+3. увімкнути зміни статусів;
+4. відредагувати мапу у форматі `Jira status=FireFlow status`, розділяючи пари комами.
+
+Приклад для workflow з повторним відкриттям і двома кінцевими станами:
+
+```text
+To Do=open, Reopened=open, Done=resolved, Closed=resolved, Cancelled=cancelled
+```
+
+Назви ліворуч мають точно відповідати статусам Jira. Значення праворуч — внутрішні статуси
+поточного workflow FireFlow у нижньому регістрі. Не додавайте неперевірені переходи: FireFlow
+може автоматично просунути заявку далі після встановлення проміжного статусу. Шина підтверджує
+саме нову транзакцію зміни статусу в History і окремо записує фактичний поточний статус.
+Дозволені лише `open`, `resolved`, `cancelled` і `rejected`. Етапи approve/review/implement/
+validate/match навмисно не приймаються з Jira, щоб сервісний акаунт не обходив ролі та
+погодження FireFlow.
+
+Під час першого applied poll шина запам'ятовує всі наявні Jira comments і status changes та
+нічого з них не надсилає. Лише наступні події копіюються. Коментар записується як **internal
+comment**, тому не надсилає correspondence email заявнику. У тексті зберігаються Jira key,
+display name автора й час; технічним автором транзакції у FireFlow залишається integration
+account. Коментарі з Jira visibility для role/group та внутрішні Jira Service Management
+comments не копіюються між різними аудиторіями. Події, які сама шина створила в Jira з даних
+FireFlow, мають origin marker і назад не відправляються.
+
+Цей напрямок використовує HTTPS endpoint `/FireFlow/REST/1.0`, оскільки публічний FireFlow API
+не має операцій внутрішнього коментаря та зміни статусу. Функція має окремий
+`fireflow.legacy_rt_enabled` gate, який меню вмикає разом із синхронізацією. Перевірте її на
+версії FireFlow замовника до production activation. За невизначеного результату POST подія
+паркується без повторної відправки, щоб не створити дубль.
+
+Переглянути таку подію без виведення тексту коментаря:
+
+```sh
+sudo docker exec algosec-jira-bus \
+  python /usr/local/libexec/algosec-jira-bus-scheduler.py queue
+```
+
+Після ручної перевірки History у FireFlow адміністратор може підтвердити, що операція вже
+виконана, і прибрати тільки точно вказану parked-подію. Значення `key`, `stream` та `event_id`
+беруться з попередньої команди:
+
+```sh
+sudo docker exec algosec-jira-bus \
+  python /usr/local/libexec/algosec-jira-bus-scheduler.py \
+  ack-jira-update NET-8 comments 12345
+```
+
+Команда відмовляється обробляти звичайну retryable-подію або інший event ID.
+Для stream `statuses` додатково звірте показаний `target_status` з новою транзакцією Status
+у FireFlow History і передайте його точно:
+
+```sh
+sudo docker exec algosec-jira-bus \
+  python /usr/local/libexec/algosec-jira-bus-scheduler.py \
+  ack-jira-update NET-8 statuses 12346 --expected-value resolved
+```
+
+Якщо History однозначно підтверджує, що POST **не виконався**, не використовуйте `ack`.
+Дозвольте одну контрольовану повторну спробу з новим operation ID:
+
+```sh
+sudo docker exec algosec-jira-bus \
+  python /usr/local/libexec/algosec-jira-bus-scheduler.py \
+  retry-jira-update NET-8 comments 12345
+```
+
+Для status додайте той самий `--expected-value`, що показує `queue`. Команда зберігає зв'язок
+із попереднім operation ID, лічильник спроб і не видаляє старий receipt. Після успішної зміни
+статусу маркер у state забороняє зворотному mirror одразу переводити Jira назад.
+
+Вимкнути напрямок можна тією самою командою. Секрети, основна конфігурація, зв'язки заявок і
+state при цьому зберігаються.
+
+### 2.6. Автоматичне встановлення без майстра
 
 На production-сервері ChatGPT, агент і MCP не потрібні. Підготуйте `bus.json` з
 `env:JIRA_API_TOKEN` та `env:ASMS_API_PASSWORD`, а також приватний `secrets.json`, який містить
@@ -324,7 +410,7 @@ user/password. Введіть актуальні значення, навіть 
 ```sh
 sudo install -d -m 0700 /root/jira-fireflow-deploy
 sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run \
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json
 ```
@@ -338,7 +424,7 @@ Installer перевіряє їх до `docker load`, запускає `doctor` 
 
 ```sh
 sudo install -o root -g root -m 0600 fireflow-ca.pem /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run \
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json \
   --ca-file /root/jira-fireflow-deploy/fireflow-ca.pem
@@ -382,12 +468,12 @@ sudo dnf install -y ca-certificates python3.11
 python3.11 -c 'import sys, venv; assert sys.version_info >= (3, 11)'
 ```
 
-З [GitHub Release v0.2.6](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.6)
-завантажте `algosec-jira-bus-0.2.6-linux.run` і сусідній `.sha256`, потім:
+З [GitHub Release v0.3.0](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.0)
+завантажте `algosec-jira-bus-0.3.0-linux.run` і сусідній `.sha256`, потім:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.2.6-linux.run.sha256
-sudo sh algosec-jira-bus-0.2.6-linux.run
+sha256sum -c algosec-jira-bus-0.3.0-linux.run.sha256
+sudo sh algosec-jira-bus-0.3.0-linux.run
 sudo systemctl status algosec-jira-bus.timer algosec-jira-bus-reconcile.timer
 sudo journalctl -u algosec-jira-bus.service -n 100 --no-pager
 ```

@@ -12,8 +12,8 @@ cp "$TEMP/source/packaging/docker/Dockerfile" "$TEMP/source/Dockerfile"
 cp "$TEMP/source/packaging/docker/.dockerignore" "$TEMP/source/.dockerignore"
 REVISION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$TEMP/source/MANIFEST.json")
 docker build --pull --platform linux/amd64 --build-arg "VCS_REF=$REVISION" \
-    --tag algosec-jira-bus:0.2.6 "$TEMP/source"
-docker save --output "$TEMP/image.tar" algosec-jira-bus:0.2.6
+    --tag algosec-jira-bus:0.3.0 "$TEMP/source"
+docker save --output "$TEMP/image.tar" algosec-jira-bus:0.3.0
 gzip -n -c "$TEMP/image.tar" > "$OUTPUT"
 python3 - "$OUTPUT" <<'PY'
 import hashlib, pathlib, sys

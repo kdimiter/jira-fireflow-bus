@@ -59,6 +59,14 @@ def migrate(settings):
         raise ValueError('fireflow.allowed_fields must be a list of names')
     if 'requestor' not in {field.casefold() for field in fields}:
         fields.append('Requestor')
+    reverse = settings.setdefault('jira_to_fireflow', {
+        'enabled': False,
+        'comments': True,
+        'status_map': {},
+    })
+    if not isinstance(reverse, dict):
+        raise ValueError('jira_to_fireflow must be an object')
+    fireflow.setdefault('legacy_rt_enabled', False)
     return settings
 
 

@@ -14,6 +14,66 @@ spec.loader.exec_module(wizard)
 
 
 class SetupWizardTests(unittest.TestCase):
+    def test_jira_to_fireflow_menu_preserves_existing_settings_and_secrets(self):
+        settings = {
+            'apply': True,
+            'jira': {'base_url': 'https://example.atlassian.net'},
+            'fireflow': {'base_url': 'https://asms.example.test',
+                         'password_ref': 'env:ASMS_API_PASSWORD'},
+            'mapping': {'structured': {'field': 'customfield_123'}},
+        }
+        answers = iter(('Y', 'Y', 'Y',
+                        ', '.join('%s=%s' % item
+                                  for item in wizard.DEFAULT_JIRA_STATUS_MAP.items())))
+        account = SimpleNamespace(pw_uid=1, pw_gid=2)
+        with patch.object(wizard, 'ask', side_effect=lambda *_a, **_k: next(answers)), \
+             patch.object(wizard, 'write_private') as write:
+            self.assertEqual(wizard.configure_jira_to_fireflow(
+                Path('/config/bus.json'), settings, account), 0)
+        saved = json.loads(write.call_args.args[1])
+        self.assertTrue(saved['apply'])
+        self.assertEqual(saved['fireflow']['password_ref'], 'env:ASMS_API_PASSWORD')
+        self.assertTrue(saved['fireflow']['legacy_rt_enabled'])
+        self.assertTrue(saved['jira_to_fireflow']['enabled'])
+        self.assertTrue(saved['jira_to_fireflow']['comments'])
+        self.assertEqual(saved['jira_to_fireflow']['status_map']['Cancelled'], 'cancelled')
+        self.assertEqual(saved['jira_to_fireflow']['status_map']['To Do'], 'open')
+
+    def test_jira_to_fireflow_menu_accepts_an_editable_status_map(self):
+        settings = {'fireflow': {}, 'mapping': {'structured': {'field': 'customfield_1'}}}
+        answers = iter(('Y', 'N', 'Y', 'Reopened=open, Closed=resolved'))
+        account = SimpleNamespace(pw_uid=1, pw_gid=2)
+        with patch.object(wizard, 'ask', side_effect=lambda *_a, **_k: next(answers)), \
+             patch.object(wizard, 'write_private') as write:
+            wizard.configure_jira_to_fireflow(Path('/config/bus.json'), settings, account)
+        saved = json.loads(write.call_args.args[1])
+        self.assertEqual(saved['jira_to_fireflow']['status_map'],
+                         {'Reopened': 'open', 'Closed': 'resolved'})
+
+    def test_status_map_rejects_duplicates_and_rt_field_injection(self):
+        for value in ('Done=resolved, done=open', 'Done=resolved\nQueue: x', 'Done',
+                      'Approve=approve'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                wizard.status_mapping(value)
+
+    def test_jira_to_fireflow_menu_can_disable_without_erasing_its_map(self):
+        settings = {
+            'apply': True,
+            'fireflow': {'legacy_rt_enabled': True},
+            'jira_to_fireflow': {'enabled': True, 'comments': True,
+                                 'status_map': {'Custom Closed': 'resolved'}},
+        }
+        account = SimpleNamespace(pw_uid=1, pw_gid=2)
+        with patch.object(wizard, 'ask', return_value='N'), \
+             patch.object(wizard, 'write_private') as write:
+            self.assertEqual(wizard.configure_jira_to_fireflow(
+                Path('/config/bus.json'), settings, account), 0)
+        saved = json.loads(write.call_args.args[1])
+        self.assertFalse(saved['jira_to_fireflow']['enabled'])
+        self.assertEqual(saved['jira_to_fireflow']['status_map'],
+                         {'Custom Closed': 'resolved'})
+        self.assertFalse(saved['fireflow']['legacy_rt_enabled'])
+
     def test_fireflow_devices_are_discovered_without_manual_entry(self):
         discovered = ['parent_fw_a', 'fw_b']
         with patch('algosec_jira_bus.provision.list_fireflow_device_tree_names',

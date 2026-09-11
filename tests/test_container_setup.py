@@ -12,6 +12,11 @@ wizard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(wizard)
 
 class ContainerSetupTests(unittest.TestCase):
+    def test_bus_conf_exposes_a_jira_to_fireflow_menu(self):
+        helper = (Path(__file__).parents[1] / 'packaging/docker/bus_conf').read_text()
+        self.assertIn('--jira-sync', helper)
+        self.assertIn('MODE=--jira-sync', helper)
+
     def run_case(self, code, response):
         with tempfile.TemporaryDirectory() as folder:
             config = Path(folder) / 'bus.json'

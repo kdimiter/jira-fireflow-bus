@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Add opt-in Jira-to-FireFlow synchronization for new internal Jira comments and explicitly mapped Jira workflow transitions.
+- Mark FireFlow-originated Jira comments and transitions so the reverse direction does not echo them back.
+- Baseline existing Jira history on first activation and persist immutable event cursors and operation receipts to prevent replay.
+- Add `sudo bus_conf --jira-sync` to enable, disable, and edit the status map without re-entering API credentials.
+- Use the FireFlow RT REST compatibility API only behind an explicit configuration gate; verify comments in History and status changes by a new status transaction.
+- Preserve existing secrets, state, and disabled reverse-sync defaults during an installer-managed upgrade.
+
 ## 0.2.6
 
 - Add a non-interactive `--upgrade` path that keeps the existing secrets and state, migrates only non-secret configuration, validates the new image before downtime, and restores the previous container and configuration if readiness fails.

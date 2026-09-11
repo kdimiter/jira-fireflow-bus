@@ -1,4 +1,4 @@
-"""Bounded HTTPS-only JSON transport for Jira Cloud and FireFlow.
+"""Bounded HTTPS-only JSON and form/text transport for Jira Cloud and FireFlow.
 
 The configured URL is an origin, never an arbitrary request URL.  Callers provide a
 validated API path and this module refuses redirects and inherited proxy settings so
@@ -202,9 +202,8 @@ def _tls_context(config):
     return context
 
 
-def request_json(config, path, headers=None, method='GET', body=None, query=None,
-                 timeout=10):
-    """Make one bounded JSON request; mutations are deliberately never retried."""
+def _request(config, path, headers, method, payload, query, timeout, decoder):
+    """One outbound call, with a common TLS, redirect and size boundary."""
     if not isinstance(config, dict):
         raise ValueError('Expected transport configuration')
     base = https_origin(config.get('base_url', ''))
@@ -213,20 +212,9 @@ def request_json(config, path, headers=None, method='GET', body=None, query=None
         raise ValueError('Unsupported HTTP method')
     if type(timeout) is not int or not 1 <= timeout <= 600:
         raise ValueError('Invalid request timeout')
-
     fields = _headers(headers)
-    fields['Accept'] = 'application/json'
-    payload = None
-    if body is not None:
-        try:
-            payload = json.dumps(body, ensure_ascii=False, separators=(',', ':'),
-                                 allow_nan=False).encode('utf-8')
-        except (TypeError, ValueError, UnicodeEncodeError, RecursionError):
-            raise ValueError('Invalid JSON request body') from None
-        if len(payload) > MAX_REQUEST_BYTES:
-            raise ValueError('HTTP request limit exceeded')
-        fields['Content-Type'] = 'application/json'
-
+    if payload is not None and len(payload) > MAX_REQUEST_BYTES:
+        raise ValueError('HTTP request limit exceeded')
     encoded_query = _query(query)
     url = base + path + (('?' + encoded_query) if encoded_query else '')
     context = _tls_context(config)
@@ -241,7 +229,58 @@ def request_json(config, path, headers=None, method='GET', body=None, query=None
                                          https_handler)
     request = urllib.request.Request(url, headers=fields, method=method, data=payload)
     with opener.open(request, timeout=timeout) as response:
-        return _decode(response)
+        return decoder(response)
+
+
+def request_json(config, path, headers=None, method='GET', body=None, query=None,
+                 timeout=10):
+    """Make one bounded JSON request; mutations are deliberately never retried."""
+    fields = _headers(headers)
+    fields['Accept'] = 'application/json'
+    payload = None
+    if body is not None:
+        try:
+            payload = json.dumps(body, ensure_ascii=False, separators=(',', ':'),
+                                 allow_nan=False).encode('utf-8')
+        except (TypeError, ValueError, UnicodeEncodeError, RecursionError):
+            raise ValueError('Invalid JSON request body') from None
+        fields['Content-Type'] = 'application/json'
+    return _request(config, path, fields, method, payload, query, timeout, _decode)
+
+
+def _decode_text(response):
+    data = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(data) > MAX_RESPONSE_BYTES:
+        raise ValueError('HTTP response limit exceeded')
+    content_type = str(response.headers.get('Content-Type') or '')
+    if content_type.split(';', 1)[0].strip().casefold() != 'text/plain':
+        raise ValueError('Expected plain text response content type')
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        raise ValueError('Invalid UTF-8 text response') from None
+
+
+def request_text(config, path, headers=None, method='GET', body=None, query=None,
+                 timeout=10):
+    """Read UTF-8 plain text or POST a bounded URL-encoded form, without retries."""
+    fields = _headers(headers)
+    fields['Accept'] = 'text/plain'
+    payload = None
+    if body is not None:
+        if (method != 'POST' or not isinstance(body, dict) or not 1 <= len(body) <= 20
+                or any(not isinstance(key, str)
+                       or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', key)
+                       or not isinstance(value, str) or '\x00' in value
+                       or len(value) > MAX_REQUEST_BYTES
+                       for key, value in body.items())):
+            raise ValueError('Invalid form request body')
+        try:
+            payload = urlencode(body, encoding='utf-8', errors='strict').encode('ascii')
+        except UnicodeEncodeError:
+            raise ValueError('Invalid form request body') from None
+        fields['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8'
+    return _request(config, path, fields, method, payload, query, timeout, _decode_text)
 
 
 def get_json(config, path, headers=None, query=None, timeout=10):

@@ -8,6 +8,7 @@
     "scan_limit": 1000
   },
   "fireflow": {
+    "legacy_rt_enabled": false,
     "base_url": "https://asms.example.com",
     "username": "jira_fireflow_service",
     "password_ref": "env:ASMS_API_PASSWORD",
@@ -122,5 +123,10 @@
   },
   "intake": {
     "mode": "todo"
+  },
+  "jira_to_fireflow": {
+    "enabled": false,
+    "comments": true,
+    "status_map": {}
   }
 }

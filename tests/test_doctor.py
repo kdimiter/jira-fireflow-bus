@@ -102,6 +102,24 @@ class Local(Base):
         results = doctor.local(settings(), self.state)
         self.assertNotIn(doctor.FAIL, [f['level'] for f in results])
 
+    def test_reverse_sync_requires_the_explicit_legacy_transport_gate(self):
+        configured = settings(jira_to_fireflow={
+            'enabled': True, 'comments': True, 'status_map': {'Done': 'resolved'}})
+        results = doctor.local(configured, self.state)
+        self.assertEqual(self.levels(results)['jira_to_fireflow.transport'], doctor.FAIL)
+
+    def test_reverse_sync_transport_is_reported_when_both_gates_are_enabled(self):
+        configured = settings(
+            fireflow={'legacy_rt_enabled': True},
+            jira_to_fireflow={
+                'enabled': True, 'comments': True, 'status_map': {'Done': 'resolved'}})
+        results = doctor.local(configured, self.state)
+        self.assertEqual(self.levels(results)['jira_to_fireflow.transport'], doctor.OK)
+
+    def test_invalid_reverse_sync_configuration_is_a_local_failure(self):
+        results = doctor.local(settings(jira_to_fireflow={'enabled': 'yes'}), self.state)
+        self.assertEqual(self.levels(results)['jira_to_fireflow.config'], doctor.FAIL)
+
     def test_a_device_that_is_used_but_not_allowlisted_is_a_failure(self):
         results = doctor.local(settings(fireflow={'allowed_devices': ['other']}), self.state)
         self.assertEqual(self.levels(results)['fireflow.allowed_devices'], doctor.FAIL)
