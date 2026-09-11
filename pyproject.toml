@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "algosec-jira-bus"
-version = "0.3.1"
+version = "0.3.2"
 description = "Poll Jira Cloud for network access requests and mirror FireFlow progress back"
 requires-python = ">=3.11"
 # The bus is self-contained and uses only Python's standard library at runtime.
