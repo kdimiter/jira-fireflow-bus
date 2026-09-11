@@ -18,7 +18,8 @@ from .adf import read_table
 from .jira import Jira
 from .jira_updates import validate_jira_to_fireflow
 from .queue import Failures
-from .sync import build, MappingError, validate_for_adapter, State, mapped_fields, intake_mode
+from .sync import (ATTRIBUTION_FIELDS, build, MappingError, validate_for_adapter,
+                   State, mapped_fields, intake_mode)
 
 OK, WARN, FAIL = 'ok', 'warn', 'fail'
 # The fields sync.build() always emits. A deployment that does not allowlist these cannot
@@ -178,7 +179,8 @@ def jira(settings, state, client=None):
 
     limit = settings['jira'].get('limit', 50)
     try:
-        issues = client.search(settings['jira']['jql'], set(wanted) | {'summary'}, limit=limit)
+        issues = client.search(settings['jira']['jql'],
+                               set(wanted) | ATTRIBUTION_FIELDS | {'summary'}, limit=limit)
     except Exception as error:
         return results + [note(FAIL, 'jira.jql',
                                'The query was rejected (%s). Check the JQL and that this account '

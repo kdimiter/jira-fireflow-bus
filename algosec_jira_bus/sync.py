@@ -47,6 +47,7 @@ from .transport import https_origin
 # issue it matched, all at once, on the first run somebody remembers to add --apply.
 # Set it to 0 or null to lift the cap deliberately.
 DEFAULT_MAX_PER_PASS = 50
+ATTRIBUTION_FIELDS = {'creator', 'reporter'}
 
 ACTIONS = ('Allow', 'Drop')
 VALUE = re.compile(r'[A-Za-z0-9_.:*/@ -]{1,256}')
@@ -410,7 +411,7 @@ def run(settings, fireflow, state, jira=None, dry_run=True, log=print,
     mapping = settings['mapping']
     template = settings['fireflow']['template']
     devices = settings['fireflow']['devices']
-    wanted = mapped_fields(mapping) | {'creator', 'reporter'}
+    wanted = mapped_fields(mapping) | ATTRIBUTION_FIELDS
     cap = settings.get('max_per_pass', DEFAULT_MAX_PER_PASS)
     if cap is not None and (isinstance(cap, bool) or not isinstance(cap, int) or cap < 0):
         raise MappingError('max_per_pass must be a non-negative whole number, or null for no cap')

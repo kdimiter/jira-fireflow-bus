@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- Request Jira creator and reporter fields during the installer connectivity doctor so
+  valid Requestor attribution is checked from the same issue data used by live polling.
+
 ## 0.3.2
 
 - Preserve Jira creator and reporter fields in the fresh approval-verified snapshot so
