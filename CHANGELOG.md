@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+- Set the FireFlow `Requestor` field to the Jira issue creator's email address while leaving `Owner` under FireFlow workflow control.
+- Refuse submission with a clear mapping error when Jira does not expose a valid creator email, preventing incorrect requestor attribution.
+
 ## 0.2.4
 
 - Preserve `tls_pin_only` in the runtime FireFlow transport so `doctor`, template reads, and traffic requests use the certificate trust mode selected during setup.

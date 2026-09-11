@@ -26,7 +26,10 @@ class Structured(unittest.TestCase):
                'services': [{'kind': 'port', 'protocol': 'tcp', 'port': 443}]}
         raw = {'schemaVersion': 1, 'justification': 'Business need',
                'changeType': 'Allow', 'trafficLines': [row, row]}
-        key, request = build({'key': 'NET-1', 'fields': {'customfield_1': raw}},
+        key, request = build({'key': 'NET-1', 'fields': {
+                                 'customfield_1': raw,
+                                 'creator': {'displayName': 'Ticket Creator',
+                                             'emailAddress': 'creator@example.org'}}},
                              {'structured': {'field': 'customfield_1'}}, 'T', ['D'])
         self.assertEqual(len(request['traffic']), 2)
         self.assertEqual(request['traffic'][0]['source']['items'], [{'address': '203.0.113.0/24'}])

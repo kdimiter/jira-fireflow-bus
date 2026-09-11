@@ -44,7 +44,9 @@ TABLE_MAPPING = {'action': {'field': 'cf_action', 'values': {'Open': 'Allow', 'C
 def issue(description, action='Open', key='NET-12'):
     return {'id': str(1000 + int(key.rsplit('-', 1)[-1])), 'key': key,
             'fields': {'summary': 'Open access', 'cf_action': action,
-                                   'description': description}}
+                       'description': description,
+                       'creator': {'displayName': 'Ticket Creator',
+                                   'emailAddress': 'creator@example.org'}}}
 
 
 class Reading(unittest.TestCase):
@@ -160,7 +162,10 @@ class Building(unittest.TestCase):
                    'service': {'field': 'cf_svc'}}
         plain_issue = {'key': 'NET-1', 'fields': {'summary': 's', 'cf_action': 'Open',
                                                   'cf_src': '192.0.2.1', 'cf_dst': '192.0.2.2',
-                                                  'cf_svc': 'tcp/443'}}
+                                                  'cf_svc': 'tcp/443',
+                                                  'creator': {
+                                                      'displayName': 'Ticket Creator',
+                                                      'emailAddress': 'creator@example.org'}}}
         _, request = build(plain_issue, mapping, 'T', ['fw1'])
         self.assertEqual(len(request['traffic']), 1)
 

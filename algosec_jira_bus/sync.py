@@ -49,6 +49,8 @@ DEFAULT_MAX_PER_PASS = 50
 
 ACTIONS = ('Allow', 'Drop')
 VALUE = re.compile(r'[A-Za-z0-9_.:*/@ -]{1,256}')
+REQUESTOR_EMAIL = re.compile(
+    r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?")
 
 # FireFlow's own bound on one request, reported as NUMBER_OF_TRAFFIC_LINES_OUT_OF_BOUNDS.
 # Refusing here gives one clear sentence naming the issue instead of a rejected
@@ -209,6 +211,21 @@ def jira_attribution(issue, origin):
     return '\n'.join(lines)
 
 
+def jira_creator_requestor(issue):
+    """Return the Jira creator email used as the FireFlow Requestor identity."""
+    fields = issue.get('fields') or {}
+    creator = fields.get('creator')
+    creator = creator if isinstance(creator, dict) else {}
+    email = creator.get('emailAddress')
+    if (not isinstance(email, str) or email != email.strip()
+            or len(email) > 254
+            or not REQUESTOR_EMAIL.fullmatch(email)):
+        raise MappingError(
+            'Jira creator email is unavailable or invalid; FireFlow Requestor '
+            'cannot be attributed safely')
+    return email
+
+
 def build(issue, mapping, template, devices, jira_origin=None):
     """One issue to one traffic request, or a MappingError explaining why not.
 
@@ -219,6 +236,7 @@ def build(issue, mapping, template, devices, jira_origin=None):
     key = issue.get('key')
     if not key:
         raise MappingError('Issue without a key')
+    requestor = jira_creator_requestor(issue)
     action = read_field(issue, mapping['action']) if mapping.get('action') else None
     if action is not None and action not in ACTIONS:
         raise MappingError('Action must map to Allow or Drop, got %r' % action)
@@ -250,6 +268,7 @@ def build(issue, mapping, template, devices, jira_origin=None):
     summary = plain((issue.get('fields') or {}).get('summary'))[:200]
     request = {'template': template,
                  'fields': [{'name': 'subject', 'values': ['%s: %s' % (key, summary)]},
+                            {'name': 'Requestor', 'values': [requestor]},
                             {'name': 'devices', 'values': list(devices)}],
                  'traffic': traffic}
     description = domain['justification'] if domain else ''
