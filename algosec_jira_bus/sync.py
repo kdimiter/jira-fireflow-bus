@@ -21,6 +21,7 @@ those stay with the FireFlow workflow and the people in it, which is the whole r
 change process exists.
 """
 from contextlib import contextmanager
+from copy import deepcopy
 import fcntl
 import hashlib
 import json
@@ -793,6 +794,11 @@ def mirror(settings, fireflow, state, jira=None, dry_run=True, log=print,
         if failures.blocked(key):
             deferred.append(key)
             continue
+        jira_sync = entry.get('jira_sync')
+        suppression = (jira_sync.get('mirror_suppression')
+                       if isinstance(jira_sync, dict) else None)
+        if suppression is not None and not isinstance(suppression, dict):
+            suppression = None
         pending = entry.get('pending_fields')
         if pending:
             observation = entry.get('pending_observation')
@@ -871,6 +877,14 @@ def mirror(settings, fireflow, state, jira=None, dry_run=True, log=print,
         details_changed = details != entry.get('workflow_details', {})
         if not status_changed and not details_changed:
             target = workflow_transition(mirror_config, status, details)
+            if suppression and not dry_run:
+                cleared_sync = deepcopy(jira_sync)
+                cleared_sync.pop('mirror_suppression', None)
+                state.record(key, {'jira_sync': cleared_sync,
+                                   'workflow_target': target,
+                                   'pending_transition': None})
+                unchanged.append(key)
+                continue
             if target and target != entry.get('workflow_target') and not retried_transition:
                 if dry_run:
                     log('would move %s to %s' % (key, target))
@@ -906,9 +920,16 @@ def mirror(settings, fireflow, state, jira=None, dry_run=True, log=print,
         target = workflow_transition(mirror_config, status, details)
         if target == entry.get('workflow_target'):
             target = None
-        state.record(key, {'status': status, 'workflow_details': details,
-                           'workflow_target': workflow_transition(mirror_config, status, details),
-                           'pending_transition': target}, clear_failure=True)
+        full_target = workflow_transition(mirror_config, status, details)
+        update = {'status': status, 'workflow_details': details,
+                  'workflow_target': full_target, 'pending_transition': target}
+        if suppression:
+            cleared_sync = deepcopy(jira_sync)
+            cleared_sync.pop('mirror_suppression', None)
+            update['jira_sync'] = cleared_sync
+            update['pending_transition'] = None
+            target = None
+        state.record(key, update, clear_failure=True)
         journal.write('mirrored', key, status=status, change_request_id=identifier)
         if target and not move_pending(key, target, status, state, jira, failures, journal, log):
             failed.append((key, 'transition'))

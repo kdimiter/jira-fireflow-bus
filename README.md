@@ -91,7 +91,9 @@ menu is enabled deliberately. This direction permits only reopen/close outcomes:
 Role/group-restricted and Jira Service Management internal comments are not copied.
 If a FireFlow POST outcome is ambiguous, `queue` exposes only event metadata and
 `ack-jira-update KEY comments|statuses EVENT_ID` consumes it only after an operator verifies
-FireFlow History. The deployment guide gives the exact container commands.
+FireFlow History. If History proves the POST absent, `retry-jira-update` creates one explicit
+superseding operation without deleting the old receipt. The deployment guide gives the exact
+container commands.
 
 Download: [GitHub Release v0.3.0](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.0).
 The wizard validates both API connections and keeps `apply: false` unless the operator enters

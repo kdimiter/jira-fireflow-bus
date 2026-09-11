@@ -101,7 +101,7 @@ class Cli(unittest.TestCase):
         parsed = json.loads(output)
         self.assertEqual(parsed['jira_to_fireflow']['NET-12'], [{
             'stream': 'comments', 'event_id': '9', 'action': 'comment',
-            'operation_id': 'jira-update-x', 'parked': True}])
+            'operation_id': 'jira-update-x', 'retry_count': 0, 'parked': True}])
         self.assertNotIn('private comment text', output)
 
     def test_jira_update_ack_refuses_wrong_or_unparked_event(self):
@@ -128,6 +128,33 @@ class Cli(unittest.TestCase):
                                    '--expected-value', 'resolved')
         self.assertEqual(code, 0)
         self.assertTrue(json.loads(output)['acknowledged'])
+
+    def test_parked_jira_update_can_be_retried_with_a_superseding_operation(self):
+        state = State(Path(self.settings['state']))
+        state.record('NET-12', {'jira_sync': {'comments': {'seen': ['8'], 'pending': {
+            'event_id': '9', 'action': 'comment', 'value': 'verified absent',
+            'operation_id': 'jira-update-old', 'reason': 'test', 'parked': True}}}})
+        code, output = self.invoke('retry-jira-update', 'NET-12', 'comments', '9')
+        self.assertEqual(code, 0)
+        self.assertTrue(json.loads(output)['retried'])
+        pending = State(Path(self.settings['state'])).entries()['NET-12']['jira_sync'] \
+            ['comments']['pending']
+        self.assertNotEqual(pending['operation_id'], 'jira-update-old')
+        self.assertEqual(pending['supersedes_operation_id'], 'jira-update-old')
+        self.assertEqual(pending['retry_count'], 1)
+        self.assertNotIn('parked', pending)
+        code, _ = self.invoke('retry-jira-update', 'NET-12', 'comments', '9')
+        self.assertEqual(code, 1)
+
+    def test_status_retry_requires_the_exact_visible_target(self):
+        state = State(Path(self.settings['state']))
+        state.record('NET-12', {'jira_sync': {'statuses': {'seen': [], 'pending': {
+            'event_id': '9', 'action': 'status', 'value': 'resolved',
+            'jira_status': 'Done', 'operation_id': 'jira-update-old',
+            'reason': 'test', 'parked': True}}}})
+        self.assertEqual(self.invoke('retry-jira-update', 'NET-12', 'statuses', '9')[0], 1)
+        self.assertEqual(self.invoke('retry-jira-update', 'NET-12', 'statuses', '9',
+                                     '--expected-value', 'resolved')[0], 0)
 
     def test_reconciliation_runs_on_local_receipts_when_jira_is_unreachable(self):
         code, output = self.invoke('reconcile')

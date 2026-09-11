@@ -4,6 +4,7 @@ from copy import deepcopy
 
 from algosec_jira_bus.jira_updates import (ORIGIN_PROPERTY, sync_updates,
                                           validate_jira_to_fireflow)
+from algosec_jira_bus.sync import mirror
 
 
 class Configuration(unittest.TestCase):
@@ -39,7 +40,7 @@ class State:
     def entries(self):
         return deepcopy(self.issues)
 
-    def record(self, key, update):
+    def record(self, key, update, clear_failure=False):
         if self.fail_save:
             self.fail_save = False
             raise OSError('simulated interrupted state save')
@@ -52,6 +53,8 @@ class Jira:
         self.comment_rows = []
         self.histories = []
         self.reads = []
+        self.outbound_comments = []
+        self.transitions = []
 
     def comments(self, issue_id, after_id=None):
         self.reads.append(('comments', issue_id))
@@ -61,12 +64,19 @@ class Jira:
         self.reads.append(('changelog', issue_id))
         return deepcopy(self.histories)
 
+    def comment(self, key, text):
+        self.outbound_comments.append((key, text))
+
+    def transition(self, key, target):
+        self.transitions.append((key, target))
+
 
 class FireFlow:
     def __init__(self):
         self.calls = []
         self.applied = {}
         self.fail = False
+        self.status = 'old'
 
     def _write(self, kind, ticket, value, operation, reason):
         self.calls.append((kind, ticket, value, operation, reason))
@@ -82,7 +92,12 @@ class FireFlow:
         return self._write('internal-comment', *args)
 
     def set_status(self, *args):
-        return self._write('status', *args)
+        result = self._write('status', *args)
+        self.status = args[1]
+        return result
+
+    def get(self, ticket):
+        return {'response': {'id': ticket, 'status': self.status}}
 
 
 def comment(identifier, text='Який статус?'):
@@ -213,6 +228,30 @@ class Synchronization(unittest.TestCase):
         self.jira.histories = [history(1)]
         self.run_sync()
         self.assertEqual(self.fireflow.calls[0][2], 'rejected')
+
+    def test_jira_origin_status_is_not_immediately_transitioned_back_by_mirror(self):
+        self.run_sync()
+        self.jira.histories = [history(1)]
+        self.run_sync()
+        self.state.record('NET-1', {'pending_fields': None})
+        self.assertIn('mirror_suppression',
+                      self.state.issues['NET-1']['jira_sync'])
+        settings = {**self.settings,
+                    'mirror': {'transitions': {'resolved': 'Done'},
+                               'comment': 'FireFlow %(id)s: %(status)s'}}
+        class NoFailures:
+            def blocked(self, _key): return False
+            def entry(self, _key): return None
+            def clear(self, _key): return None
+            def parked(self): return {}
+        mirror(settings, self.fireflow, self.state, jira=self.jira,
+               dry_run=False, log=lambda *_: None, failures=NoFailures())
+        self.assertEqual(self.jira.transitions, [])
+        self.assertEqual(len(self.jira.outbound_comments), 1)
+        entry = self.state.issues['NET-1']
+        self.assertNotIn('mirror_suppression', entry['jira_sync'])
+        self.assertIsNone(entry['pending_transition'])
+        self.assertEqual(entry['workflow_target'], 'Done')
 
     def test_unknown_write_retries_same_operation_without_duplicate(self):
         self.run_sync()

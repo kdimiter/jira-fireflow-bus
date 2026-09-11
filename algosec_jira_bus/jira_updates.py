@@ -117,7 +117,18 @@ def _watermark(identifiers):
 
 def _deliver(fireflow, ticket, pending):
     method = fireflow.add_comment if pending['action'] == 'comment' else fireflow.set_status
-    method(ticket, pending['value'], pending['operation_id'], pending['reason'])
+    return method(ticket, pending['value'], pending['operation_id'], pending['reason'])
+
+
+def _suppress_mirror(cursor, pending):
+    """Persist one Jira-origin status so mirror will not transition it back."""
+    if pending.get('action') == 'status':
+        cursor['mirror_suppression'] = {
+            'event_id': pending['event_id'],
+            'jira_status': pending.get('jira_status'),
+            'fireflow_target': pending['value'],
+            'operation_id': pending['operation_id'],
+        }
 
 
 def sync_updates(settings, fireflow, state, jira=None, dry_run=True, log=print,
@@ -187,6 +198,7 @@ def sync_updates(settings, fireflow, state, jira=None, dry_run=True, log=print,
                     changed = True
                     if not dry_run:
                         _deliver(fireflow, ticket, pending)
+                        _suppress_mirror(cursor, pending)
                         seen.add(pending['event_id'])
                         stream['seen'] = _watermark(seen)
                         stream.pop('pending')
@@ -223,9 +235,12 @@ def sync_updates(settings, fireflow, state, jira=None, dry_run=True, log=print,
                         if not dry_run:
                             stream['pending'] = {'action': action[0], 'value': action[1],
                                                  'operation_id': operation, 'reason': reason,
-                                                 'event_id': event_id}
+                                                 'event_id': event_id,
+                                                 **({'jira_status': row.get('to')}
+                                                    if action[0] == 'status' else {})}
                             state.record(key, {'jira_sync': deepcopy(cursor)})
                             _deliver(fireflow, ticket, stream['pending'])
+                            _suppress_mirror(cursor, stream['pending'])
                             stream.pop('pending')
                     if not dry_run:
                         seen.add(event_id)

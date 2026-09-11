@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from functools import partial
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -194,6 +195,7 @@ def show_queue(settings, state_dir=None):
                 **({'target_status': pending.get('value')}
                    if pending.get('action') == 'status' else {}),
                 'operation_id': pending.get('operation_id'),
+                'retry_count': pending.get('retry_count', 0),
                 'parked': pending.get('parked') is True,
             })
     if reverse:
@@ -228,12 +230,52 @@ def acknowledge_jira_update(settings, key, stream_name, event_id, expected_value
                 and (expected_value is None or pending.get('value') != expected_value)):
             return False
         seen = stream.get('seen') or []
+        if pending.get('action') == 'status':
+            sync['mirror_suppression'] = {
+                'event_id': pending['event_id'],
+                'jira_status': pending.get('jira_status'),
+                'fireflow_target': pending['value'],
+                'operation_id': pending['operation_id'],
+            }
         stream['seen'] = [max([*seen, event_id], key=int)]
         stream.pop('pending')
         state.record(key, {'jira_sync': sync})
         journal.write('unparked', key, direction='jira_to_fireflow',
                       stream=stream_name, event_id=event_id,
                       operation_id=pending.get('operation_id'))
+        return True
+
+
+def retry_jira_update(settings, key, stream_name, event_id, expected_value=None,
+                      state_dir=None):
+    """Unpark an operation only after an operator verified it absent in FireFlow."""
+    with session(settings, state_dir) as (_, state, _, journal):
+        entry = state.entries().get(key) or {}
+        sync = deepcopy(entry.get('jira_sync') or {})
+        stream = sync.get(stream_name)
+        pending = stream.get('pending') if isinstance(stream, dict) else None
+        if (not isinstance(pending, dict) or pending.get('parked') is not True
+                or pending.get('event_id') != event_id):
+            return False
+        if (pending.get('action') == 'status'
+                and (expected_value is None or pending.get('value') != expected_value)):
+            return False
+        count = pending.get('retry_count', 0)
+        if type(count) is not int or not 0 <= count < 10:
+            return False
+        previous = pending.get('operation_id')
+        if not isinstance(previous, str):
+            return False
+        pending['operation_id'] = 'jira-update-' + hashlib.sha256(
+            json.dumps([previous, 'operator-verified-absent', count + 1],
+                       separators=(',', ':')).encode()).hexdigest()
+        pending['supersedes_operation_id'] = previous
+        pending['retry_count'] = count + 1
+        pending.pop('parked')
+        state.record(key, {'jira_sync': sync})
+        journal.write('unparked', key, direction='jira_to_fireflow',
+                      resolution='verified_absent_retry', stream=stream_name,
+                      event_id=event_id, operation_id=pending['operation_id'])
         return True
 
 
@@ -284,6 +326,15 @@ def main(argv=None):
     acknowledge.add_argument('event_id', help='immutable numeric Jira event id')
     acknowledge.add_argument('--expected-value',
                              help='required exact target for a parked status operation')
+
+    retry = modes.add_parser(
+        'retry-jira-update',
+        help='retry one parked Jira update after verifying it absent in FireFlow')
+    retry.add_argument('key', help='Jira issue key')
+    retry.add_argument('stream', choices=('comments', 'statuses'))
+    retry.add_argument('event_id', help='immutable numeric Jira event id')
+    retry.add_argument('--expected-value',
+                       help='required exact target for a parked status operation')
 
     arguments = parser.parse_args(argv)
     settings = private_json(Path(arguments.config).expanduser(), os.getuid())
@@ -343,6 +394,17 @@ def main(argv=None):
                           'stream': arguments.stream, 'event_id': arguments.event_id},
                          ensure_ascii=False))
         return 0 if acknowledged else 1
+
+    if arguments.mode == 'retry-jira-update':
+        if not ISSUE_ID.fullmatch(arguments.event_id):
+            parser.error('event_id must be a positive numeric Jira event id')
+        retried = retry_jira_update(
+            settings, arguments.key, arguments.stream, arguments.event_id,
+            arguments.expected_value, arguments.state_dir)
+        print(json.dumps({'retried': retried, 'key': arguments.key,
+                          'stream': arguments.stream, 'event_id': arguments.event_id},
+                         ensure_ascii=False))
+        return 0 if retried else 1
 
     if arguments.mode == 'reconcile':
         report = check(settings, heal=not arguments.no_heal, state_dir=arguments.state_dir)

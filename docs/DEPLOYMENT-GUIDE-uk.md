@@ -385,6 +385,19 @@ sudo docker exec algosec-jira-bus \
   ack-jira-update NET-8 statuses 12346 --expected-value resolved
 ```
 
+Якщо History однозначно підтверджує, що POST **не виконався**, не використовуйте `ack`.
+Дозвольте одну контрольовану повторну спробу з новим operation ID:
+
+```sh
+sudo docker exec algosec-jira-bus \
+  python /usr/local/libexec/algosec-jira-bus-scheduler.py \
+  retry-jira-update NET-8 comments 12345
+```
+
+Для status додайте той самий `--expected-value`, що показує `queue`. Команда зберігає зв'язок
+із попереднім operation ID, лічильник спроб і не видаляє старий receipt. Після успішної зміни
+статусу маркер у state забороняє зворотному mirror одразу переводити Jira назад.
+
 Вимкнути напрямок можна тією самою командою. Секрети, основна конфігурація, зв'язки заявок і
 state при цьому зберігаються.
 
