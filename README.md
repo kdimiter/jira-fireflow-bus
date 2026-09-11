@@ -183,9 +183,9 @@ python3 scripts/build-installer.py \
   --output dist/algosec-jira-bus-0.3.1-linux.run
 sh packaging/docker/build-image.sh \
   dist/algosec-jira-bus-0.3.1-linux.run \
-  dist/algosec-jira-bus-docker-amd64.tar.gz
+  dist/algosec-jira-bus-0.3.1-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
-  --image dist/algosec-jira-bus-docker-amd64.tar.gz \
+  --image dist/algosec-jira-bus-0.3.1-docker-amd64.tar.gz \
   --output dist/algosec-jira-bus-0.3.1-docker-amd64.run
 python3 scripts/build-release-metadata.py \
   --directory dist --version 0.3.1 --image algosec-jira-bus:0.3.1
