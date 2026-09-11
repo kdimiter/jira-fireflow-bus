@@ -268,7 +268,7 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
         self.helper = self.base / 'install-docker.sh'
         self.helper.write_text(
             '#!/bin/sh\nprintf "%s\\n" "$@" > "$DOCKER_INSTALLER_TEST_LOG"\n')
-        self.bundle = self.base / 'algosec-jira-bus-0.2.5-docker-amd64.run'
+        self.bundle = self.base / 'algosec-jira-bus-0.2.6-docker-amd64.run'
         docker_builder.build(self.image, self.helper, self.bundle)
 
     def run_bundle(self, *args, env=None):
@@ -285,12 +285,16 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
             'algosec-jira-bus-docker-amd64.tar.gz.sha256',
             'install-docker.sh',
             'stage-config.py',
+            'upgrade-config.py',
             'bus_conf',
+            'bus_update',
             'prepare-fireflow.sh',
             'prepare-jira.sh',
         })
         self.assertEqual((target / 'bus_conf').read_bytes(),
                          (ROOT / 'packaging/docker/bus_conf').read_bytes())
+        self.assertEqual((target / 'bus_update').read_bytes(),
+                         (ROOT / 'packaging/docker/bus_update').read_bytes())
 
     def test_one_file_installer_bootstraps_supported_linux_dependencies(self):
         header = self.bundle.read_bytes().split(docker_builder.MARKER, 1)[0].decode()

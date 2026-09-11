@@ -11,6 +11,10 @@ spec = importlib.util.spec_from_file_location(
     'container_config_stager', ROOT / 'packaging/docker/stage-config.py')
 stager = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(stager)
+upgrade_spec = importlib.util.spec_from_file_location(
+    'container_config_upgrader', ROOT / 'packaging/docker/upgrade-config.py')
+upgrader = importlib.util.module_from_spec(upgrade_spec)
+upgrade_spec.loader.exec_module(upgrader)
 
 
 class ContainerConfigStagingTests(unittest.TestCase):
@@ -104,6 +108,60 @@ class NonInteractiveInstallerContractTests(unittest.TestCase):
         self.assertLess(validate, docker_info)
         self.assertLess(doctor, stop)
         self.assertIn('docker rm -f algosec-jira-bus', helper)
+
+    def test_upgrade_preflights_before_stop_and_has_automatic_rollback(self):
+        helper = (ROOT / 'packaging/docker/install-docker.sh').read_text()
+        start = helper.index('if [ "$UPGRADE_ONLY" -eq 1 ]')
+        doctor = helper.index('"$IMAGE" doctor', start)
+        stop = helper.index('docker stop algosec-jira-bus', doctor)
+        restore = helper.index('"$CONFIG_UPGRADER" restore', stop)
+        self.assertLess(doctor, stop)
+        self.assertIn('docker rename algosec-jira-bus algosec-jira-bus-previous', helper)
+        self.assertGreater(restore, stop)
+
+    def test_bus_update_stages_verified_installer_and_selects_upgrade_mode(self):
+        helper = (ROOT / 'packaging/docker/bus_update').read_text()
+        self.assertIn("STAGE=$(mktemp -d /tmp/algosec-jira-update.XXXXXX)", helper)
+        self.assertIn('Installer SHA256 mismatch; current container was not touched', helper)
+        self.assertIn('sh "$STAGED_INSTALLER" --upgrade', helper)
+
+
+class UpgradeConfigTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.source = self.root / 'bus.json'
+        self.staged = self.root / 'staged.json'
+        self.backup = self.root / 'backup.json'
+        self.source.write_text(json.dumps({
+            'apply': True,
+            'jira': {'token_ref': 'env:JIRA_API_TOKEN'},
+            'fireflow': {
+                'password_ref': 'env:ASMS_API_PASSWORD',
+                'allowed_fields': ['subject', 'devices'],
+            },
+        }))
+        self.source.chmod(0o600)
+
+    def test_adds_requestor_without_changing_secrets_or_apply(self):
+        upgrader.stage(self.source, self.staged, os.getuid())
+        result = json.loads(self.staged.read_text())
+        self.assertTrue(result['apply'])
+        self.assertEqual(result['jira']['token_ref'], 'env:JIRA_API_TOKEN')
+        self.assertEqual(result['fireflow']['password_ref'], 'env:ASMS_API_PASSWORD')
+        self.assertEqual(result['fireflow']['allowed_fields'],
+                         ['subject', 'devices', 'Requestor'])
+
+    def test_apply_and_restore_are_atomic_from_the_callers_view(self):
+        original = self.source.read_bytes()
+        upgrader.stage(self.source, self.staged, os.getuid())
+        upgrader.apply(self.source, self.staged, self.backup, os.getuid())
+        self.assertIn('Requestor', json.loads(self.source.read_text())['fireflow']['allowed_fields'])
+        self.assertTrue(self.backup.exists())
+        upgrader.restore(self.source, self.backup, os.getuid())
+        self.assertEqual(self.source.read_bytes(), original)
+        self.assertFalse(self.backup.exists())
 
 
 if __name__ == '__main__':

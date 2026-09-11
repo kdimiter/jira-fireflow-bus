@@ -19,9 +19,9 @@ runtime dependencies; the server does not clone the repository, build an image, 
 Python packages.
 
 ```sh
-# 1. Download these two assets from release v0.2.5, then verify and run:
-sha256sum -c algosec-jira-bus-0.2.5-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.2.5-docker-amd64.run
+# 1. Download these two assets from release v0.2.6, then verify and run:
+sha256sum -c algosec-jira-bus-0.2.6-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.2.6-docker-amd64.run
 
 # 2. Re-run the configuration wizard after deployment if needed:
 sudo bus_conf
@@ -34,14 +34,29 @@ sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
 ```
 
+Upgrade an existing installer-managed container without entering or rewriting its secrets:
+
+```sh
+sha256sum -c algosec-jira-bus-0.2.6-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.2.6-docker-amd64.run --upgrade
+
+# For every later release:
+sudo bus_update ./algosec-jira-bus-VERSION-docker-amd64.run \
+  ./algosec-jira-bus-VERSION-docker-amd64.run.sha256
+```
+
+Upgrade mode reads the existing `secrets.json` only for the new-image doctor. It does not
+rewrite that file or the persistent state. The old container remains available until the new
+container reports `READY`; failure restores the prior `bus.json` and restarts the old container.
+
 For a new environment, install the ready image and the two host preparation scripts first:
 
 ```sh
-sudo sh algosec-jira-bus-0.2.5-docker-amd64.run --prepare-only
+sudo sh algosec-jira-bus-0.2.6-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
 # Install the repository Forge app once, then prepare Jira:
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --project-key ALGO --apply
-sudo sh algosec-jira-bus-0.2.5-docker-amd64.run
+sudo sh algosec-jira-bus-0.2.6-docker-amd64.run
 ```
 
 The `.sh` helpers run through the bundled Docker image and do not use host Python.
@@ -57,13 +72,14 @@ On a clean Ubuntu/Debian or RHEL/Rocky/AlmaLinux host, the verified `.run` insta
 installs Python 3 and Docker Engine from the OS and official Docker repositories when they are
 missing. Its default wizard asks for the Jira URL, API email/token, FireFlow URL, API account,
 and TLS mode before it runs the connectivity doctor. The release uses the configured Basic Change
-Traffic Request template and discovers the permitted device tree names through the ASMS API. The installer also adds
-`sudo bus_conf` for post-deployment changes. Every run asks for the Jira and FireFlow URLs and
+Traffic Request template and discovers the permitted device tree names through the ASMS API.
+The installer adds `sudo bus_conf` for post-deployment changes and `sudo bus_update` for
+subsequent release upgrades. Every configuration run asks for the Jira and FireFlow URLs and
 API credentials again; enter the current values even when changing only one setting. After
 FireFlow authentication, the wizard automatically loads all permitted FireFlow-supported
 device tree names from ASMS; they are not typed manually.
 
-Download: [GitHub Release v0.2.5](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.5).
+Download: [GitHub Release v0.2.6](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.6).
 The wizard validates both API connections and keeps `apply: false` unless the operator enters
 `START`.
 
@@ -81,7 +97,7 @@ package download is used:
 ```sh
 sudo install -d -m 0700 /root/jira-fireflow-deploy
 sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.2.5-docker-amd64.run \
+sudo sh algosec-jira-bus-0.2.6-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json
 ```
@@ -138,15 +154,15 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.2.5-linux.run
+  --output dist/algosec-jira-bus-0.2.6-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.2.5-linux.run \
+  dist/algosec-jira-bus-0.2.6-linux.run \
   dist/algosec-jira-bus-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
   --image dist/algosec-jira-bus-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.2.5-docker-amd64.run
+  --output dist/algosec-jira-bus-0.2.6-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.2.5 --image algosec-jira-bus:0.2.5
+  --directory dist --version 0.2.6 --image algosec-jira-bus:0.2.6
 ```
 
 The bus submits and tracks a change request. Approval, planning, implementation, and policy

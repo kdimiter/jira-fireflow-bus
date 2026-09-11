@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6
+
+- Add a non-interactive `--upgrade` path that keeps the existing secrets and state, migrates only non-secret configuration, validates the new image before downtime, and restores the previous container and configuration if readiness fails.
+- Install `bus_update` so later Docker releases can be applied from a downloaded `.run` and checksum pair without reopening the credential wizard.
+
 ## 0.2.5
 
 - Set the FireFlow `Requestor` field to the Jira issue creator's email address while leaving `Owner` under FireFlow workflow control.
