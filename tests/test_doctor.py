@@ -20,7 +20,7 @@ def settings(**over):
             'fireflow': {'template': 'Traffic Change Request', 'devices': ['fw1'],
                          'allowed_templates': ['Traffic Change Request'],
                          'allowed_devices': ['fw1'],
-                         'allowed_fields': ['subject', 'devices']},
+                         'allowed_fields': ['subject', 'devices', 'Requestor']},
             'mapping': {'action': {'field': 'customfield_1', 'values': {'Open': 'Allow'}},
                         'source': {'field': 'customfield_2'},
                         'destination': {'field': 'customfield_3'},
@@ -38,7 +38,9 @@ def settings(**over):
 
 def issue(key='NET-1', **fields):
     body = {'summary': 'x', 'customfield_1': 'Open', 'customfield_2': '192.0.2.1',
-            'customfield_3': '192.0.2.2', 'customfield_4': 'tcp/443'}
+            'customfield_3': '192.0.2.2', 'customfield_4': 'tcp/443',
+            'creator': {'displayName': 'Ticket Creator',
+                        'emailAddress': 'creator@example.org'}}
     body.update(fields)
     return {'key': key, 'fields': body}
 
@@ -113,6 +115,7 @@ class Local(Base):
         results = doctor.local(settings(fireflow={'allowed_fields': ['subject']}), self.state)
         detail = self.detail(results, 'fireflow.allowed_fields')
         self.assertIn('devices', detail)
+        self.assertIn('Requestor', detail)
         self.assertNotIn('externalId', detail)
 
     def test_an_action_field_without_a_values_map_refuses_every_issue(self):

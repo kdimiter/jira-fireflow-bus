@@ -13,6 +13,8 @@ class Jira:
         self.config = {'base_url': origin}
         self.fresh = {'id': '1234', 'key': 'NET-1', 'fields': {
             'summary': 'Approved access', 'status': {'name': 'Approved'},
+            'creator': {'displayName': 'Ticket Creator',
+                        'emailAddress': 'creator@example.org'},
             'customfield_1': {'schemaVersion': 1, 'justification': 'Business need',
                 'changeType': 'Allow', 'trafficLines': [{
                     'source': {'kind': 'subnet', 'value': '203.0.113.0/24'},

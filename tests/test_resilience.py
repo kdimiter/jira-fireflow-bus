@@ -21,7 +21,10 @@ SETTINGS = {'jira': {'jql': 'project = NET'},
 def issue(key='NET-12', action='Open'):
     return {'id': str(1000 + int(key.rsplit('-', 1)[-1])), 'key': key,
             'fields': {'summary': 'Open access', 'cf_action': action,
-                                   'cf_src': '192.0.2.1', 'cf_dst': '192.0.2.2', 'cf_svc': 'tcp/443'}}
+                       'cf_src': '192.0.2.1', 'cf_dst': '192.0.2.2',
+                       'cf_svc': 'tcp/443',
+                       'creator': {'displayName': 'Ticket Creator',
+                                   'emailAddress': 'creator@example.org'}}}
 
 
 class Clock:

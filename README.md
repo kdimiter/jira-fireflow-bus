@@ -19,9 +19,9 @@ runtime dependencies; the server does not clone the repository, build an image, 
 Python packages.
 
 ```sh
-# 1. Download these two assets from release v0.2.4, then verify and run:
-sha256sum -c algosec-jira-bus-0.2.4-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.2.4-docker-amd64.run
+# 1. Download these two assets from release v0.2.5, then verify and run:
+sha256sum -c algosec-jira-bus-0.2.5-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.2.5-docker-amd64.run
 
 # 2. Re-run the configuration wizard after deployment if needed:
 sudo bus_conf
@@ -37,11 +37,11 @@ sudo docker logs --tail 100 algosec-jira-bus
 For a new environment, install the ready image and the two host preparation scripts first:
 
 ```sh
-sudo sh algosec-jira-bus-0.2.4-docker-amd64.run --prepare-only
+sudo sh algosec-jira-bus-0.2.5-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
 # Install the repository Forge app once, then prepare Jira:
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --project-key ALGO --apply
-sudo sh algosec-jira-bus-0.2.4-docker-amd64.run
+sudo sh algosec-jira-bus-0.2.5-docker-amd64.run
 ```
 
 The `.sh` helpers run through the bundled Docker image and do not use host Python.
@@ -63,7 +63,7 @@ API credentials again; enter the current values even when changing only one sett
 FireFlow authentication, the wizard automatically loads all permitted FireFlow-supported
 device tree names from ASMS; they are not typed manually.
 
-Download: [GitHub Release v0.2.4](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.4).
+Download: [GitHub Release v0.2.5](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.5).
 The wizard validates both API connections and keeps `apply: false` unless the operator enters
 `START`.
 
@@ -81,7 +81,7 @@ package download is used:
 ```sh
 sudo install -d -m 0700 /root/jira-fireflow-deploy
 sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.2.4-docker-amd64.run \
+sudo sh algosec-jira-bus-0.2.5-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json
 ```
@@ -138,19 +138,22 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.2.4-linux.run
+  --output dist/algosec-jira-bus-0.2.5-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.2.4-linux.run \
+  dist/algosec-jira-bus-0.2.5-linux.run \
   dist/algosec-jira-bus-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
   --image dist/algosec-jira-bus-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.2.4-docker-amd64.run
+  --output dist/algosec-jira-bus-0.2.5-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.2.4 --image algosec-jira-bus:0.2.4
+  --directory dist --version 0.2.5 --image algosec-jira-bus:0.2.5
 ```
 
 The bus submits and tracks a change request. Approval, planning, implementation, and policy
 decisions remain in FireFlow. Restrict Jira project permissions and JQL because eligible Jira
 issues can initiate FireFlow requests after the configured approval gate.
+The Jira issue creator's email is sent as the FireFlow `Requestor`; FireFlow assigns `Owner`
+according to its workflow. Jira must expose `creator.emailAddress` to the dedicated API account,
+otherwise the issue is refused instead of being attributed to the wrong person.
 
 Licensed under Apache-2.0. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).

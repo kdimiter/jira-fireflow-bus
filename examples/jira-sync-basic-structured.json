@@ -25,7 +25,8 @@
     "allowed_fields": [
       "devices",
       "subject",
-      "Change Request Description"
+      "Change Request Description",
+      "Requestor"
     ],
     "request_timeout": 30
   },

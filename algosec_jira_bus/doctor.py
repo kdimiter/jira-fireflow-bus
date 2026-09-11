@@ -22,7 +22,7 @@ from .sync import build, MappingError, validate_for_adapter, State, mapped_field
 OK, WARN, FAIL = 'ok', 'warn', 'fail'
 # The fields sync.build() always emits. A deployment that does not allowlist these cannot
 # submit anything, and the refusal happens inside the adapter where it is easy to misread.
-REQUIRED_FIELDS = ('subject', 'devices')
+REQUIRED_FIELDS = ('subject', 'devices', 'Requestor')
 
 
 def note(level, check, detail=''):

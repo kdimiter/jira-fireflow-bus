@@ -27,7 +27,7 @@ class AttributionTests(unittest.TestCase):
     def test_request_preserves_justification_and_traffic(self):
         from algosec_jira_bus.sync import build
         raw={'schemaVersion':1,'justification':'Business reason','changeType':'Drop','trafficLines':[{'source':{'kind':'ip','value':'192.0.2.1'},'destination':{'kind':'ip','value':'192.0.2.2'},'services':[{'kind':'port','protocol':'tcp','port':22}]}]}
-        issue={'key':'NET-5','fields':{'customfield_1':raw,'creator':{'displayName':'Test Vasia','accountId':'123'}}}
+        issue={'key':'NET-5','fields':{'customfield_1':raw,'creator':{'displayName':'Test Vasia','accountId':'123','emailAddress':'creator@example.org'}}}
         _,r=build(issue,{'structured':{'field':'customfield_1'}},'Basic',['device'],jira_origin='https://example.atlassian.net')
         description=next(x['values'][0] for x in r['fields'] if x['name']=='Change Request Description')
         self.assertTrue(description.startswith('Business reason\n\n'))

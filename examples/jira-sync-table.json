@@ -26,7 +26,8 @@
     "allowed_fields": [
       "subject",
       "devices",
-      "externalId"
+      "externalId",
+      "Requestor"
     ]
   },
   "mapping": {

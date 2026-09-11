@@ -156,6 +156,22 @@ class Client(unittest.TestCase):
         self.assertRegex(reply['sha256'], r'^[a-f0-9]{64}$')
         self.assertEqual(self.api.calls[-1][1], '/FireFlow/api/change-requests/traffic/42')
 
+    def test_requestor_email_is_allowed_and_sent_to_fireflow(self):
+        config = dict(self.config)
+        config['allowed_fields'] = self.config['allowed_fields'] + ['Requestor']
+        client = FireFlow(config, 'MANAGE', Audit(self.temp.name),
+                          request=self.api, resolver=lambda _ref: 'test-password')
+        request = traffic_request()
+        request['fields'].append({
+            'name': 'Requestor', 'values': ['creator@example.org']})
+
+        client.create(request, 'jira-id-1234', 'Approved Jira request NET-1')
+
+        create = next(call for call in self.api.calls
+                      if call[1] == '/FireFlow/api/change-requests/traffic')
+        self.assertIn({'name': 'Requestor', 'values': ['creator@example.org']},
+                      create[2]['body']['fields'])
+
     def test_each_endpoint_rejects_an_incomplete_or_wrongly_typed_envelope(self):
         class Broken(API):
             def __init__(self, response):

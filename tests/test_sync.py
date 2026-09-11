@@ -17,7 +17,9 @@ def issue(key='NET-12', action='Open', source='192.0.2.0/24', destination='198.5
     identifier = identifier or str(1000 + int(key.rsplit('-', 1)[-1]))
     return {'id': identifier, 'key': key,
             'fields': {'summary': summary, 'cf_action': action, 'cf_src': source,
-                                   'cf_dst': destination, 'cf_svc': service}}
+                       'cf_dst': destination, 'cf_svc': service,
+                       'creator': {'displayName': 'Ticket Creator',
+                                   'emailAddress': 'creator@example.org'}}}
 
 
 class Fireflow:
@@ -53,6 +55,29 @@ class Mapping(unittest.TestCase):
         self.assertNotIn('externalId', fields)
         self.assertEqual(fields['devices'], ['fw1'])
         self.assertTrue(fields['subject'][0].startswith('NET-12: '))
+
+    def test_jira_creator_email_becomes_the_fireflow_requestor(self):
+        source = issue()
+        source['fields']['creator'] = {
+            'displayName': 'Ticket Creator', 'emailAddress': 'creator@example.org'}
+        source['fields']['reporter'] = {
+            'displayName': 'Different Reporter', 'emailAddress': 'reporter@example.org'}
+
+        _, request = build(source, MAPPING, 'T', ['fw1'])
+
+        fields = {item['name']: item['values'] for item in request['fields']}
+        self.assertEqual(fields['Requestor'], ['creator@example.org'])
+        self.assertNotIn('reporter@example.org', fields['Requestor'])
+
+    def test_missing_or_invalid_jira_creator_email_is_refused(self):
+        for value in (None, '', 'not-an-email', 'two@@example.org',
+                      'creator@example.org\nOwner: admin'):
+            source = issue()
+            source['fields']['creator'] = {
+                'displayName': 'Ticket Creator', 'emailAddress': value}
+            with self.subTest(value=value), self.assertRaisesRegex(
+                    MappingError, 'creator email'):
+                build(source, MAPPING, 'T', ['fw1'])
 
     def test_lists_are_accepted_the_way_a_person_types_them(self):
         _, request = build(issue(source='192.0.2.1, 192.0.2.2\n192.0.2.3'), MAPPING, 'T', ['fw1'])
