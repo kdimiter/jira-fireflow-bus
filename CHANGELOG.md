@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - Add an idempotent `create-jira-space.sh` helper for validating, creating, and reusing a
   company-managed Jira Space before the Forge app and remaining Jira integration objects are
