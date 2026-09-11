@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from algosec_jira_bus.jira_provision import (
     JiraProvisionError,
@@ -146,3 +147,31 @@ class JiraProvisionTests(unittest.TestCase):
             return {'permissions': {'ADMINISTER': {'havePermission': False}}}
         with self.assertRaises(JiraProvisionError):
             prepare_jira(call, apply=True)
+
+    @patch('algosec_jira_bus.jira_provision.prompt',
+           side_effect=['admin@example.test', 'token-value'])
+    @patch('algosec_jira_bus.jira_provision.request_json_string')
+    @patch('algosec_jira_bus.jira_provision.request_json')
+    def test_cli_uses_scalar_decoder_for_name_validation(
+            self, request_json, request_json_string, _prompt):
+        from algosec_jira_bus.jira_provision import main
+
+        def json_call(_config, path, **_kwargs):
+            if path.endswith('/myself'):
+                return {'accountId': 'admin-account'}
+            if path.endswith('/mypermissions'):
+                return {'permissions': {'ADMINISTER': {'havePermission': True}}}
+            if path.endswith('/project/TESTBUS'):
+                raise __import__('urllib.error').error.HTTPError(
+                    'https://example.test', 404, 'Not Found', {}, None)
+            if path.endswith('/projectvalidate/key'):
+                return {'errorMessages': [], 'errors': {}}
+            self.fail('Unexpected JSON path: ' + path)
+
+        request_json.side_effect = json_call
+        request_json_string.return_value = 'AlgoSec Test Space'
+        stopped = main(['--base-url', 'https://jira.example.test', '--space-only',
+                        '--space-key', 'TESTBUS',
+                        '--space-name', 'AlgoSec Test Space'])
+        self.assertEqual(stopped, 2)
+        request_json_string.assert_called_once()

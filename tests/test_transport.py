@@ -6,7 +6,7 @@ from unittest.mock import patch, Mock
 
 from algosec_jira_bus.transport import (MAX_RESPONSE_BYTES, NoRedirect,
                                         PinnedHTTPSHandler, https_origin, request_json,
-                                        verify_certificate_pin)
+                                        request_json_string, verify_certificate_pin)
 
 
 class Response:
@@ -126,6 +126,29 @@ class ResponseBoundary(unittest.TestCase):
     def test_empty_success_body_is_allowed(self):
         self.assertEqual(self.call(Response(b'', '')),
                          {})
+
+    def test_json_string_accepts_documented_and_unquoted_jira_responses(self):
+        for body in (b'"AlgoSec Test Space"', b'AlgoSec Test Space'):
+            with self.subTest(body=body), patch(
+                    'algosec_jira_bus.transport.urllib.request.build_opener',
+                    return_value=Opener(Response(body))):
+                self.assertEqual(request_json_string(
+                    {'base_url': 'https://jira.example.test'}, '/valid-name'),
+                    'AlgoSec Test Space')
+
+    def test_json_string_rejects_non_string_html_and_controls(self):
+        responses = (
+            Response(b'{"name":"Space"}'),
+            Response(b'<html>login</html>', 'text/html'),
+            Response(b'Space\nInjected'),
+            Response(b'\xff'),
+        )
+        for response in responses:
+            with self.subTest(body=response.body), patch(
+                    'algosec_jira_bus.transport.urllib.request.build_opener',
+                    return_value=Opener(response)), self.assertRaises(ValueError):
+                request_json_string({'base_url': 'https://jira.example.test'},
+                                    '/valid-name')
 
 
 class TLS(unittest.TestCase):

@@ -5,7 +5,7 @@ import json
 import re
 import urllib.error
 
-from .transport import https_origin, request_json
+from .transport import https_origin, request_json, request_json_string
 from .console import ConsoleError, prompt
 
 
@@ -269,12 +269,17 @@ def main(argv=None):
 
     def call(path, *, optional=False, **kwargs):
         try:
-            return request_json({'base_url': base_url}, path, headers=headers,
-                                timeout=30, **kwargs)
+            requester = (request_json_string
+                         if path.endswith('/projectvalidate/validProjectName')
+                         else request_json)
+            return requester({'base_url': base_url}, path, headers=headers,
+                             timeout=30, **kwargs)
         except urllib.error.HTTPError as error:
             if optional and error.code == 404:
                 return None
             raise JiraProvisionError('Jira API request failed with HTTP ' + str(error.code)) from None
+        except ValueError:
+            raise JiraProvisionError('Jira API returned an invalid response') from None
 
     if args.space_only:
         result = ensure_space(call, apply=args.apply,
