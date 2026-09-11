@@ -19,7 +19,7 @@ from .jira import Jira
 from .jira_updates import validate_jira_to_fireflow
 from .queue import Failures
 from .sync import (ATTRIBUTION_FIELDS, build, MappingError, validate_for_adapter,
-                   State, mapped_fields, intake_mode)
+                   State, mapped_fields, intake_mode, validate_mirror)
 
 OK, WARN, FAIL = 'ok', 'warn', 'fail'
 # The fields sync.build() always emits. A deployment that does not allowlist these cannot
@@ -38,6 +38,10 @@ def local(settings, state):
         intake_mode(settings)
     except MappingError as error:
         results.append(note(FAIL, 'intake', str(error)))
+    try:
+        validate_mirror(settings.get('mirror') or {})
+    except MappingError as error:
+        results.append(note(FAIL, 'mirror.config', str(error)))
     mapping = settings.get('mapping') or {}
     structured = 'structured' in mapping
     if structured:
@@ -156,6 +160,30 @@ def jira(settings, state, client=None):
         return results + [note(FAIL, 'jira.auth',
                                'Could not authenticate (%s). Check base_url, email and the '
                                'token behind token_ref.' % type(error).__name__)]
+
+    owner_assignees = ((settings.get('mirror') or {}).get('owner_assignees') or {})
+    if owner_assignees:
+        project = settings['jira'].get('project_key')
+        if not isinstance(project, str):
+            results.append(note(
+                FAIL, 'jira.assignees',
+                'Set jira.project_key before configuring FireFlow owner mappings.'))
+        else:
+            unavailable = []
+            try:
+                for owner, account_id in owner_assignees.items():
+                    matches = client.assignable_users(project, account_id=account_id)
+                    if not any(user.get('accountId') == account_id for user in matches):
+                        unavailable.append(owner)
+                results.append(note(
+                    FAIL if unavailable else OK, 'jira.assignees',
+                    ('Not assignable in %s: %s' % (project, ', '.join(unavailable)))
+                    if unavailable else '%d owner mapping(s) are assignable in %s'
+                    % (len(owner_assignees), project)))
+            except Exception as error:
+                results.append(note(
+                    FAIL, 'jira.assignees',
+                    'Could not validate owner mappings (%s).' % type(error).__name__))
 
     wanted = sorted(mapped_fields(settings.get('mapping')))
     try:
