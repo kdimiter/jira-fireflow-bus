@@ -18,6 +18,7 @@ import uuid
 from urllib.parse import urlsplit
 
 from algosec_jira_bus.config import private_json
+from algosec_jira_bus.console import prompt
 
 
 MAX_PRIVATE_TEXT_BYTES = 1024 * 1024
@@ -94,7 +95,7 @@ def read_regular_text(path, *, max_bytes=MAX_PRIVATE_TEXT_BYTES):
 
 
 def ask(label, default=''):
-    value = input(f'{label}' + (f' [{default}]' if default else '') + ': ').strip()
+    value = prompt(f'{label}' + (f' [{default}]' if default else '') + ': ').strip()
     return value or default
 
 
@@ -220,8 +221,8 @@ def collect_fireflow_credentials():
         print('ASMS certificate SHA256:', pin)
         if ask('Type TRUST to pin this exact certificate') != 'TRUST':
             raise ValueError('Server certificate was not trusted')
-    ff_user = ask('FireFlow API user', 'jira_bus_api')
-    password = getpass.getpass('Existing FireFlow API password: ')
+    ff_user = ask('FireFlow username', 'jira_bus_api')
+    password = prompt('Existing FireFlow password: ', secret=True)
     return ff_url, ff_user, password, pin, trust
 
 
@@ -370,7 +371,7 @@ def main():
         raise ValueError('Existing secrets.env preserved. Complete bus.json using the guide, then rerun; wizard will not replace existing credentials.')
     url = origin(ask('Jira site URL'))
     email = ask('Jira API account email')
-    token = getpass.getpass('Jira API token: ')
+    token = prompt('Jira API token: ', secret=True)
     os.environ['JIRA_API_TOKEN'] = token
     from algosec_jira_bus.jira import Jira
     jira = Jira({'base_url': url, 'email': email, 'token_ref': 'env:JIRA_API_TOKEN'})

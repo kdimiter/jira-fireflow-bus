@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+- Fixed Backspace (`BS` and `DEL`) and added `Ctrl-U` to clear interactive credential prompts, including hidden passwords and tokens.
+- Validate ASMS administrator credentials before requesting new account details; report safe TLS, connection and authentication error categories.
+- Allow retrying mismatched integration passwords without restarting account preparation.
+- Clarified manual FireFlow account setup: configure username/password; the bus obtains and renews a temporary session instead of requiring a static API key.
+
 ## 0.2.1
 
 - Added `bus_conf` with safe certificate-pin rotation and rollback.

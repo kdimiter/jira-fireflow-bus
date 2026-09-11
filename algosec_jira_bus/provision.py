@@ -5,9 +5,11 @@ import re
 import socket
 import ssl
 import hashlib
+import urllib.error
 from urllib.parse import urlsplit
 
 from .transport import https_origin, request_json
+from .console import ConsoleError, prompt as _prompt
 
 
 class ProvisionError(ValueError):
@@ -33,17 +35,74 @@ def _request(config, path, **kwargs):
     return request_json(config, path, timeout=timeout, **kwargs)
 
 
-def create_asms_user(transport, admin_username, admin_password, username, password,
-                     email, request=None):
-    """Create a local ASMS/FireFlow admin with ALL_FIREWALLS Standard access."""
+def _login_failure(error):
+    """Categorize failures without displaying remote bodies or exception text."""
+    if isinstance(error, urllib.error.HTTPError):
+        if error.code in (401, 403):
+            return 'ASMS administrator login rejected (HTTP 401/403); check the administrator username and password.'
+        code = error.code if type(error.code) is int else 'unexpected'
+        return f'ASMS administrator login failed: unexpected HTTP {code}; check the ASMS API endpoint.'
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return ('ASMS TLS certificate verification failed; use --ca-file or '
+                '--trust-server-certificate and verify the displayed fingerprint.')
+    if isinstance(reason, ssl.SSLError):
+        return 'ASMS TLS connection failed; check server TLS configuration and certificate.'
+    if isinstance(reason, (TimeoutError, socket.timeout)):
+        return 'ASMS connection timed out; check connectivity and server availability.'
+    if isinstance(reason, socket.gaierror):
+        return 'ASMS DNS lookup failed; check the hostname and DNS from the Docker host.'
+    if isinstance(reason, OSError) or isinstance(error, urllib.error.URLError):
+        return 'ASMS connection failed; check connectivity, VPN and the HTTPS port.'
+    return 'ASMS login returned an unexpected response; check the ASMS API endpoint and version.'
+
+
+def _connection(transport):
     parsed = urlsplit(transport.get('base_url', ''))
     if (parsed.scheme != 'https' or not parsed.hostname or parsed.username
             or parsed.password or parsed.query or parsed.fragment
             or parsed.path not in ('', '/')):
         raise ProvisionError('ASMS base URL must be an HTTPS origin')
-    for value in (admin_username, admin_password, username, password, email):
-        if not isinstance(value, str) or not value or any(ord(c) < 32 for c in value):
+    return {key: value for key, value in transport.items()
+            if key in ('base_url', 'ca_file', 'tls_certificate_sha256',
+                       'tls_pin_only', 'request_timeout')}
+
+
+def _validate_inputs(*values):
+    for value in values:
+        if (not isinstance(value, str) or not value
+                or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value)):
             raise ProvisionError('Account inputs must be nonempty strings without control characters')
+
+
+def _validate_session(session):
+    if not isinstance(session, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,512}', session):
+        raise ProvisionError('ASMS administrator login did not return a valid session')
+    return session
+
+
+def authenticate_asms(transport, admin_username, admin_password, request=None):
+    """Verify administrator access without creating or modifying a user."""
+    connection = _connection(transport)
+    _validate_inputs(admin_username, admin_password)
+    request = request or _request
+    try:
+        auth = request(connection, '/fa/server/connection/login', method='POST',
+                       body={'username': admin_username, 'password': admin_password})
+    except Exception as error:
+        raise ProvisionError(_login_failure(error)) from None
+    if isinstance(auth, dict) and auth.get('status') is False:
+        raise ProvisionError('ASMS administrator credentials rejected; check the username and password.')
+    if not isinstance(auth, dict) or auth.get('status') is not True:
+        raise ProvisionError('ASMS administrator login did not return a valid session')
+    return _validate_session(auth.get('SessionID'))
+
+
+def create_asms_user(transport, admin_username, admin_password, username, password,
+                     email, request=None, *, _session=None):
+    """Create a local ASMS/FireFlow admin with ALL_FIREWALLS Standard access."""
+    connection = _connection(transport)
+    _validate_inputs(admin_username, admin_password, username, password, email)
     if username == admin_username:
         raise ProvisionError('Use a dedicated integration username, not the administrator')
     if not re.fullmatch(r'[A-Za-z0-9_.@-]{1,128}', username):
@@ -51,19 +110,8 @@ def create_asms_user(transport, admin_username, admin_password, username, passwo
     if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', email):
         raise ProvisionError('Invalid integration email')
     request = request or _request
-    connection = {key: value for key, value in transport.items()
-                  if key in ('base_url', 'ca_file', 'tls_certificate_sha256',
-                             'tls_pin_only', 'request_timeout')}
-    try:
-        auth = request(connection, '/fa/server/connection/login', method='POST',
-                       body={'username': admin_username, 'password': admin_password})
-    except Exception:
-        raise ProvisionError('ASMS administrator login failed; check connectivity and credentials') from None
-    session = auth.get('SessionID') if isinstance(auth, dict) else None
-    if (not isinstance(auth, dict) or auth.get('status') is not True
-            or not isinstance(session, str)
-            or not re.fullmatch(r'[A-Za-z0-9_-]{1,512}', session)):
-        raise ProvisionError('ASMS administrator login did not return a valid session')
+    session = (authenticate_asms(connection, admin_username, admin_password, request)
+               if _session is None else _validate_session(_session))
     body = {
         'userName': username,
         'password': password,
@@ -118,24 +166,31 @@ def main(argv=None):
         if not args.tls_certificate_sha256:
             fingerprint = capture_certificate_sha256(transport['base_url'])
             print('ASMS certificate SHA256:', fingerprint)
-            if input('Type TRUST to pin this exact certificate: ').strip() != 'TRUST':
+            if _prompt('Type TRUST to pin this exact certificate: ').strip() != 'TRUST':
                 print('No changes made.')
                 return 2
             transport['tls_certificate_sha256'] = fingerprint
         transport['tls_pin_only'] = True
-    admin = input('Existing ASMS administrator username: ').strip()
-    admin_password = getpass.getpass('Existing ASMS administrator password: ')
-    username = input('New integration username [jira_bus_api]: ').strip() or 'jira_bus_api'
-    email = input('Unique integration email: ').strip()
-    password = getpass.getpass('New integration password (input hidden): ')
-    if password != getpass.getpass('Repeat new integration password: '):
-        print('Passwords do not match; no changes made.')
+    admin = _prompt('Existing ASMS administrator username: ').strip()
+    admin_password = _prompt('Existing ASMS administrator password: ', secret=True)
+    session = authenticate_asms(transport, admin, admin_password)
+    print('ASMS administrator login verified.')
+    username = _prompt('New integration username [jira_bus_api]: ').strip() or 'jira_bus_api'
+    email = _prompt('Unique integration email: ').strip()
+    for attempt in range(3):
+        password = _prompt('New integration password (masked): ', secret=True)
+        repeated = _prompt('Repeat new integration password: ', secret=True)
+        if password == repeated:
+            break
+        print('Passwords do not match; enter the new password again.')
+    else:
+        print('Three password attempts failed; no changes made.')
         return 2
-    if input('Type CREATE to grant ASMS Admin, FireFlow Admin and ALL_FIREWALLS Standard: ').strip() != 'CREATE':
+    if _prompt('Type CREATE to grant ASMS Admin, FireFlow Admin and ALL_FIREWALLS Standard: ').strip() != 'CREATE':
         print('No changes made.')
         return 2
     result = create_asms_user(
-        transport, admin, admin_password, username, password, email)
+        transport, admin, admin_password, username, password, email, _session=session)
     print(json.dumps(result, sort_keys=True))
     print('Account created. Enter the same password later in bus_conf.')
     return 0
@@ -144,6 +199,6 @@ def main(argv=None):
 if __name__ == '__main__':
     try:
         raise SystemExit(main())
-    except ProvisionError as error:
+    except (ProvisionError, ConsoleError) as error:
         print('FireFlow preparation stopped:', str(error))
         raise SystemExit(1)
