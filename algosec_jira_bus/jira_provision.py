@@ -17,6 +17,7 @@ TEXT_TYPE = 'com.atlassian.jira.plugin.system.customfieldtypes:textfield'
 TEXT_SEARCHER = 'com.atlassian.jira.plugin.system.customfieldtypes:textsearcher'
 RESULT_FIELDS = ('FireFlow Request ID', 'FireFlow Status', 'FireFlow Owner')
 MARKER = 'Managed by jira-fireflow-bus prepare-jira.sh'
+SPACE_TEMPLATE = 'com.atlassian.jira-core-project-templates:jira-core-project-management'
 
 
 def _identifier(value, label):
@@ -26,31 +27,77 @@ def _identifier(value, label):
     return value
 
 
-def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec'):
-    """Prepare project, work type, fields and project screen using an admin caller."""
-    if type(apply) is not bool or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,9}', project_key):
-        raise JiraProvisionError('Invalid Jira preparation options')
+def _administrator(call):
     identity = call('/rest/api/3/myself')
     account_id = identity.get('accountId') if isinstance(identity, dict) else None
     if not isinstance(account_id, str) or not account_id:
         raise JiraProvisionError('Jira administrator identity could not be verified')
     permissions = call('/rest/api/3/mypermissions', query={'permissions': 'ADMINISTER'})
-    permission = permissions.get('permissions', {}).get('ADMINISTER', {}) if isinstance(permissions, dict) else {}
+    permission = (permissions.get('permissions', {}).get('ADMINISTER', {})
+                  if isinstance(permissions, dict) else {})
     if permission.get('havePermission') is not True:
         raise JiraProvisionError('The API account does not have Jira Administrator permission')
+    return account_id
+
+
+def ensure_space(call, *, apply, project_key='ALGO', project_name='AlgoSec',
+                 account_id=None):
+    """Create or verify one company-managed Jira Space through the supported project API."""
+    if (type(apply) is not bool or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,9}', project_key)
+            or not isinstance(project_name, str) or not 1 <= len(project_name.strip()) <= 80
+            or project_name != project_name.strip()
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in project_name)):
+        raise JiraProvisionError('Invalid Jira Space name, key, or apply option')
+    account_id = account_id or _administrator(call)
+    project = call('/rest/api/3/project/' + project_key, optional=True)
+    if project is not None:
+        if (not isinstance(project, dict) or str(project.get('key')) != project_key
+                or project.get('name') != project_name):
+            raise JiraProvisionError('The Jira Space key already belongs to another name')
+        if project.get('simplified') is True:
+            raise JiraProvisionError('Use a company-managed Jira Space')
+        return {'ready': True, 'created': False, 'space_key': project_key,
+                'space_name': project_name,
+                'project_id': _identifier(project.get('id'), 'project ID')}
+
+    key_check = call('/rest/api/3/projectvalidate/key', query={'key': project_key})
+    if (not isinstance(key_check, dict) or key_check.get('errorMessages')
+            or key_check.get('errors')):
+        raise JiraProvisionError('Jira rejected the Space key')
+    valid_name = call('/rest/api/3/projectvalidate/validProjectName',
+                      query={'name': project_name})
+    if valid_name != project_name:
+        raise JiraProvisionError('The Jira Space name is unavailable')
+    if not apply:
+        return {'ready': False, 'created': False, 'space_key': project_key,
+                'space_name': project_name, 'planned': ['space:' + project_key]}
+
+    project = call('/rest/api/3/project', method='POST', body={
+        'key': project_key, 'name': project_name, 'leadAccountId': account_id,
+        'projectTypeKey': 'business', 'projectTemplateKey': SPACE_TEMPLATE,
+        'assigneeType': 'PROJECT_LEAD', 'description': MARKER})
+    if (not isinstance(project, dict) or str(project.get('key')) != project_key):
+        raise JiraProvisionError('Jira did not confirm the created Space')
+    return {'ready': True, 'created': True, 'space_key': project_key,
+            'space_name': project_name,
+            'project_id': _identifier(project.get('id'), 'project ID')}
+
+
+def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec'):
+    """Prepare project, work type, fields and project screen using an admin caller."""
+    if type(apply) is not bool or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,9}', project_key):
+        raise JiraProvisionError('Invalid Jira preparation options')
+    account_id = _administrator(call)
 
     created = []
     project = call('/rest/api/3/project/' + project_key, optional=True)
     if project is None:
-        if not apply:
+        space = ensure_space(call, apply=apply, project_key=project_key,
+                             project_name=project_name, account_id=account_id)
+        if not space['ready']:
             return {'ready': False, 'planned': ['project:' + project_key],
                     'manual': ['Install the Forge app before apply']}
-        project = call('/rest/api/3/project', method='POST', body={
-            'key': project_key, 'name': project_name, 'leadAccountId': account_id,
-            'projectTypeKey': 'business',
-            'projectTemplateKey':
-                'com.atlassian.jira-core-project-templates:jira-core-project-management',
-            'assigneeType': 'PROJECT_LEAD', 'description': MARKER})
+        project = call('/rest/api/3/project/' + project_key)
         created.append('project:' + project_key)
     project_id = _identifier(project.get('id'), 'project ID')
     if project.get('simplified') is True:
@@ -206,8 +253,10 @@ def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description='Prepare Jira Cloud for Jira-FireFlow')
     parser.add_argument('--base-url', required=True)
-    parser.add_argument('--project-key', default='ALGO')
-    parser.add_argument('--project-name', default='AlgoSec')
+    parser.add_argument('--project-key', '--space-key', dest='project_key', default='ALGO')
+    parser.add_argument('--project-name', '--space-name', dest='project_name', default='AlgoSec')
+    parser.add_argument('--space-only', action='store_true',
+                        help='create or verify only the company-managed Jira Space')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args(argv)
     base_url = https_origin(args.base_url)
@@ -227,8 +276,12 @@ def main(argv=None):
                 return None
             raise JiraProvisionError('Jira API request failed with HTTP ' + str(error.code)) from None
 
-    result = prepare_jira(call, apply=args.apply,
-                          project_key=args.project_key, project_name=args.project_name)
+    if args.space_only:
+        result = ensure_space(call, apply=args.apply,
+                              project_key=args.project_key, project_name=args.project_name)
+    else:
+        result = prepare_jira(call, apply=args.apply,
+                              project_key=args.project_key, project_name=args.project_name)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get('ready') else 2
 

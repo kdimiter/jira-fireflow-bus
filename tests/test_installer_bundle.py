@@ -268,7 +268,7 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
         self.helper = self.base / 'install-docker.sh'
         self.helper.write_text(
             '#!/bin/sh\nprintf "%s\\n" "$@" > "$DOCKER_INSTALLER_TEST_LOG"\n')
-        self.bundle = self.base / 'algosec-jira-bus-0.3.0-docker-amd64.run'
+        self.bundle = self.base / 'algosec-jira-bus-0.3.1-docker-amd64.run'
         docker_builder.build(self.image, self.helper, self.bundle)
 
     def run_bundle(self, *args, env=None):
@@ -290,6 +290,7 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
             'bus_update',
             'prepare-fireflow.sh',
             'prepare-jira.sh',
+            'create-jira-space.sh',
         })
         self.assertEqual((target / 'bus_conf').read_bytes(),
                          (ROOT / 'packaging/docker/bus_conf').read_bytes())
@@ -354,7 +355,8 @@ class PreparationHelperImageTests(unittest.TestCase):
                 'esac\n'
                 'exit 0\n')
             binary.chmod(0o700)
-            for helper in ('prepare-fireflow.sh', 'prepare-jira.sh'):
+            for helper in ('prepare-fireflow.sh', 'prepare-jira.sh',
+                           'create-jira-space.sh'):
                 with self.subTest(helper=helper):
                     log.unlink(missing_ok=True)
                     script = root / helper
@@ -372,6 +374,8 @@ class PreparationHelperImageTests(unittest.TestCase):
                     self.assertNotIn('inspect --format', calls)
                     self.assertIn('run --rm', calls)
                     self.assertNotIn('algosec-jira-bus:old', calls)
+                    if helper == 'create-jira-space.sh':
+                        self.assertIn('jira_provision --space-only --help', calls)
 
 class InstallerPreflightTests(unittest.TestCase):
     """Shell contract tests with a fake manager; these do not prove systemd deployment."""

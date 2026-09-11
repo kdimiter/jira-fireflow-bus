@@ -27,7 +27,7 @@ DOCKER_INSTALLER_SPEC.loader.exec_module(docker_installer_builder)
 
 
 class ReleaseMetadataTests(unittest.TestCase):
-    VERSION = '0.3.0'
+    VERSION = '0.3.1'
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -48,7 +48,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         (self.root / 'packaging/docker/bus_update').write_bytes(
             (ROOT / 'packaging/docker/bus_update').read_bytes())
         (self.root / 'scripts').mkdir()
-        for name in ('prepare-fireflow.sh', 'prepare-jira.sh'):
+        for name in ('prepare-fireflow.sh', 'prepare-jira.sh',
+                     'create-jira-space.sh'):
             (self.root / 'scripts' / name).write_bytes(
                 (ROOT / 'scripts' / name).read_bytes())
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
@@ -141,14 +142,14 @@ class ReleaseMetadataTests(unittest.TestCase):
             output = Path(command[command.index('--output') + 1])
             output.write_text(json.dumps({
                 'spdxVersion': 'SPDX-2.3',
-                'name': 'algosec-jira-bus:0.3.0',
+                'name': 'algosec-jira-bus:0.3.1',
                 'packages': [{
                     'SPDXID': 'SPDXRef-DocumentRoot',
                     'externalRefs': [{
                         'referenceType': 'purl',
                         'referenceLocator': (
                             'pkg:oci/algosec-jira-bus@' + self.IMAGE_ID +
-                            '?repository_url=docker.io&tag=0.3.0'),
+                            '?repository_url=docker.io&tag=0.3.1'),
                     }],
                 }],
                 'relationships': [{
@@ -178,7 +179,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertEqual(first['image']['id'], self.IMAGE_ID)
         self.assertEqual(first['image']['platform'], 'linux/amd64')
         self.assertEqual(first['image']['base'], 'python:3.11-slim@sha256:' + 'c' * 64)
-        self.assertIn('algosec-jira-bus-0.3.0-sbom.spdx.json', first['artifacts'])
+        self.assertIn('algosec-jira-bus-0.3.1-sbom.spdx.json', first['artifacts'])
         sum_names = [line.split('  ', 1)[1] for line in first_sums.decode().splitlines()]
         self.assertEqual(sum_names, sorted(sum_names))
         self.assertIn('RELEASE-MANIFEST.json', sum_names)
@@ -186,7 +187,7 @@ class ReleaseMetadataTests(unittest.TestCase):
 
     def test_rejects_an_invalid_adjacent_checksum(self):
         checksum = self.dist / f'algosec-jira-bus-{self.VERSION}-linux.run.sha256'
-        checksum.write_text('0' * 64 + '  algosec-jira-bus-0.3.0-linux.run\n')
+        checksum.write_text('0' * 64 + '  algosec-jira-bus-0.3.1-linux.run\n')
         with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
             release_metadata.build(
                 self.root, self.dist, self.VERSION, self.REVISION,
