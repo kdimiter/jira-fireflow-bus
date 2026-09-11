@@ -193,7 +193,8 @@ class FireFlow:
 
     def _transport(self):
         transport = {key: self.config[key]
-                for key in ('base_url', 'ca_file', 'tls_certificate_sha256')
+                for key in ('base_url', 'ca_file', 'tls_certificate_sha256',
+                            'tls_pin_only')
                 if key in self.config}
         transport['base_url'] = https_origin(transport.get('base_url', ''))
         return transport
