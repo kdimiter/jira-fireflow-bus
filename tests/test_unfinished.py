@@ -35,6 +35,17 @@ class Unresolved(unittest.TestCase):
         self.assertEqual(pending, ['NET-12'])
         self.assertEqual(missing, [])
 
+    def test_a_jira_to_fireflow_write_intent_is_reported_as_pending(self):
+        self.state.record('NET-12', {
+            'change_request_id': 42,
+            'jira_sync': {'comments': {'seen': [], 'pending': {
+                'event_id': '9', 'action': 'comment', 'value': 'hello',
+                'operation_id': 'jira-update-x', 'reason': 'test pending write'}}},
+        })
+        pending, missing = bus.unresolved(self.state)
+        self.assertEqual(pending, ['NET-12'])
+        self.assertEqual(missing, [])
+
     def test_a_created_request_with_no_id_is_reported_as_missing(self):
         self.state.record('NET-12', {'operation_id': 'jira-NET_12', 'change_request_id': None})
         self.state.record('NET-13', {'operation_id': 'jira-NET_13', 'change_request_id': 43})
@@ -53,6 +64,8 @@ class ExitCode(unittest.TestCase):
                            'deferred': [], 'capped': [], 'parked': []},
                 'mirror': {'updated': [], 'unchanged': [], 'deferred': [], 'failed': [],
                            'parked': []},
+                'jira_to_fireflow': {'updated': [], 'unchanged': [], 'failed': [],
+                                     'parked': []},
                 'pending': [], 'missing_ids': []}
 
     def test_a_pass_with_nothing_outstanding_is_clean(self):

@@ -22,6 +22,15 @@ from algosec_jira_bus.console import prompt
 
 
 MAX_PRIVATE_TEXT_BYTES = 1024 * 1024
+DEFAULT_JIRA_STATUS_MAP = {
+    'To Do': 'open',
+    'Reopened': 'open',
+    'Done': 'resolved',
+    'Closed': 'resolved',
+    'Rejected': 'rejected',
+    'Cancelled': 'cancelled',
+    'Canceled': 'cancelled',
+}
 
 
 def validate_secret_references(settings):
@@ -97,6 +106,79 @@ def read_regular_text(path, *, max_bytes=MAX_PRIVATE_TEXT_BYTES):
 def ask(label, default=''):
     value = prompt(f'{label}' + (f' [{default}]' if default else '') + ': ').strip()
     return value or default
+
+
+def ask_boolean(label, default):
+    value = ask(label + (' (Y/n)' if default else ' (y/N)'),
+                'Y' if default else 'N').casefold()
+    if value in ('y', 'yes'):
+        return True
+    if value in ('n', 'no'):
+        return False
+    raise ValueError('Answer y or n')
+
+
+def status_mapping(value):
+    """Parse the editable menu value without accepting RT field separators."""
+    result = {}
+    folded = set()
+    for item in value.split(','):
+        if '=' not in item:
+            raise ValueError('Use Jira status=FireFlow status pairs separated by commas')
+        jira_status, fireflow_status = (part.strip() for part in item.split('=', 1))
+        key = jira_status.casefold()
+        if (not jira_status or not fireflow_status or key in folded
+                or any(char in jira_status + fireflow_status for char in '\r\n\x00')
+                or fireflow_status not in ('open', 'resolved', 'cancelled', 'rejected')):
+            raise ValueError('Invalid or duplicate Jira to FireFlow status mapping')
+        folded.add(key)
+        result[jira_status] = fireflow_status
+    return result
+
+
+def configure_jira_to_fireflow(config, settings, account):
+    """Configure reverse synchronization without asking for either API secret again."""
+    current = settings.get('jira_to_fireflow')
+    if current is None:
+        current = {}
+    if not isinstance(current, dict):
+        raise ValueError('jira_to_fireflow must be an object')
+    enabled = ask_boolean('Enable Jira to FireFlow synchronization?',
+                          current.get('enabled', True) is not False)
+    if enabled:
+        comments = ask_boolean('Copy new Jira comments to FireFlow History?',
+                               current.get('comments', True) is not False)
+        statuses = ask_boolean('Apply mapped Jira workflow changes in FireFlow?',
+                               bool(current.get('status_map', True)))
+        existing_map = current.get('status_map')
+        status_map = (dict(existing_map) if statuses and isinstance(existing_map, dict)
+                      and existing_map else dict(DEFAULT_JIRA_STATUS_MAP) if statuses else {})
+        if statuses:
+            default_map = ', '.join('%s=%s' % item for item in status_map.items())
+            status_map = status_mapping(ask(
+                'Jira to FireFlow status map (Jira=FireFlow, comma-separated)',
+                default_map))
+        print('Jira status mapping:', ', '.join(
+            '%s -> %s' % item for item in status_map.items()) if status_map else 'disabled')
+    else:
+        comments = current.get('comments', True) is not False
+        status_map = current.get('status_map')
+        if not isinstance(status_map, dict):
+            status_map = dict(DEFAULT_JIRA_STATUS_MAP)
+    settings['jira_to_fireflow'] = {
+        'enabled': enabled,
+        'comments': comments,
+        'status_map': status_map,
+    }
+    fireflow = settings.get('fireflow')
+    if not isinstance(fireflow, dict):
+        raise ValueError('FireFlow configuration is missing')
+    fireflow['legacy_rt_enabled'] = enabled
+    write_private(config, json.dumps(settings, indent=2, ensure_ascii=False) + '\n',
+                  account.pw_uid, account.pw_gid)
+    print('Jira to FireFlow synchronization %s. Existing credentials and state were preserved.'
+          % ('enabled' if enabled else 'disabled'))
+    return 0
 
 
 def origin(value):
@@ -353,6 +435,8 @@ def main():
                         help='Replace an existing configuration after revalidating both APIs')
     parser.add_argument('--refresh-certificate', action='store_true',
                         help='Capture and validate a replacement FireFlow certificate pin')
+    parser.add_argument('--jira-sync', action='store_true',
+                        help='Configure Jira to FireFlow status and comment synchronization')
     args = parser.parse_args()
     if sys.platform != 'linux' or (not args.container and os.geteuid() != 0):
         raise ValueError('Run on Linux as root')
@@ -376,6 +460,10 @@ def main():
         if not args.container or not configured:
             raise ValueError('Certificate refresh requires an existing container configuration')
         return refresh_container_certificate(config, existing, account)
+    if args.jira_sync:
+        if not args.container or not configured:
+            raise ValueError('Jira to FireFlow setup requires an existing container configuration')
+        return configure_jira_to_fireflow(config, existing, account)
     if configured and not args.reconfigure:
         print('Existing configuration detected; preserving it and secrets.')
         return finish(config, existing, account)

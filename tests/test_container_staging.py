@@ -152,6 +152,22 @@ class UpgradeConfigTests(unittest.TestCase):
         self.assertEqual(result['fireflow']['password_ref'], 'env:ASMS_API_PASSWORD')
         self.assertEqual(result['fireflow']['allowed_fields'],
                          ['subject', 'devices', 'Requestor'])
+        self.assertFalse(result['fireflow']['legacy_rt_enabled'])
+        self.assertEqual(result['jira_to_fireflow'], {
+            'enabled': False, 'comments': True, 'status_map': {}})
+
+    def test_preserves_an_explicit_jira_to_fireflow_configuration(self):
+        value = json.loads(self.source.read_text())
+        value['fireflow']['legacy_rt_enabled'] = True
+        value['jira_to_fireflow'] = {
+            'enabled': True, 'comments': True,
+            'status_map': {'Cancelled': 'rejected'},
+        }
+        self.source.write_text(json.dumps(value)); self.source.chmod(0o600)
+        upgrader.stage(self.source, self.staged, os.getuid())
+        result = json.loads(self.staged.read_text())
+        self.assertTrue(result['fireflow']['legacy_rt_enabled'])
+        self.assertEqual(result['jira_to_fireflow'], value['jira_to_fireflow'])
 
     def test_apply_and_restore_are_atomic_from_the_callers_view(self):
         original = self.source.read_bytes()

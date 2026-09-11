@@ -80,6 +80,55 @@ class Cli(unittest.TestCase):
         self.assertTrue(json.loads(output)['released'])
         self.assertEqual(Failures(State(Path(self.settings['state']))).parked(), {})
 
+    def test_exact_parked_jira_update_can_be_acknowledged_after_inspection(self):
+        state = State(Path(self.settings['state']))
+        state.record('NET-12', {'jira_sync': {'comments': {'seen': ['8'], 'pending': {
+            'event_id': '9', 'action': 'comment', 'value': 'already verified',
+            'operation_id': 'jira-update-x', 'reason': 'test', 'parked': True}}}})
+        code, output = self.invoke('ack-jira-update', 'NET-12', 'comments', '9')
+        self.assertEqual(code, 0)
+        self.assertTrue(json.loads(output)['acknowledged'])
+        saved = State(Path(self.settings['state'])).entries()['NET-12']['jira_sync']['comments']
+        self.assertEqual(saved, {'seen': ['9']})
+
+    def test_queue_shows_parked_jira_update_without_comment_content(self):
+        state = State(Path(self.settings['state']))
+        state.record('NET-12', {'jira_sync': {'comments': {'seen': ['8'], 'pending': {
+            'event_id': '9', 'action': 'comment', 'value': 'private comment text',
+            'operation_id': 'jira-update-x', 'reason': 'test', 'parked': True}}}})
+        code, output = self.invoke('queue')
+        self.assertEqual(code, 0)
+        parsed = json.loads(output)
+        self.assertEqual(parsed['jira_to_fireflow']['NET-12'], [{
+            'stream': 'comments', 'event_id': '9', 'action': 'comment',
+            'operation_id': 'jira-update-x', 'parked': True}])
+        self.assertNotIn('private comment text', output)
+
+    def test_jira_update_ack_refuses_wrong_or_unparked_event(self):
+        state = State(Path(self.settings['state']))
+        state.record('NET-12', {'jira_sync': {'comments': {'seen': [], 'pending': {
+            'event_id': '9', 'action': 'comment', 'value': 'retryable',
+            'operation_id': 'jira-update-x', 'reason': 'test'}}}})
+        code, output = self.invoke('ack-jira-update', 'NET-12', 'comments', '9')
+        self.assertEqual(code, 1)
+        self.assertFalse(json.loads(output)['acknowledged'])
+
+    def test_status_ack_requires_the_exact_visible_target(self):
+        state = State(Path(self.settings['state']))
+        state.record('NET-12', {'jira_sync': {'statuses': {'seen': ['8'], 'pending': {
+            'event_id': '9', 'action': 'status', 'value': 'resolved',
+            'operation_id': 'jira-update-y', 'reason': 'test', 'parked': True}}}})
+        code, output = self.invoke('queue')
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output)['jira_to_fireflow']['NET-12'][0]
+                         ['target_status'], 'resolved')
+        code, _ = self.invoke('ack-jira-update', 'NET-12', 'statuses', '9')
+        self.assertEqual(code, 1)
+        code, output = self.invoke('ack-jira-update', 'NET-12', 'statuses', '9',
+                                   '--expected-value', 'resolved')
+        self.assertEqual(code, 0)
+        self.assertTrue(json.loads(output)['acknowledged'])
+
     def test_reconciliation_runs_on_local_receipts_when_jira_is_unreachable(self):
         code, output = self.invoke('reconcile')
         self.assertEqual(code, 0)
@@ -164,6 +213,28 @@ class Cli(unittest.TestCase):
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stderr(io.StringIO()):
                 bus.main(['--config', str(self.config)])
+
+    def test_poll_runs_jira_to_fireflow_before_the_existing_mirror(self):
+        events = []
+        client = object()
+        state = SimpleNamespace(entries=lambda: {})
+
+        @contextlib.contextmanager
+        def local_session(*_args, **_kwargs):
+            yield object(), state, object(), object()
+
+        empty_intake = {'failed': [], 'refused': []}
+        empty_reverse = {'failed': [], 'parked': []}
+        empty_mirror = {'failed': [], 'parked': []}
+        with patch.object(bus, 'session', local_session), \
+             patch.object(bus, 'Jira', return_value=client), \
+             patch.object(bus, 'run', side_effect=lambda *a, **k: events.append('intake') or empty_intake), \
+             patch.object(bus, 'sync_updates', side_effect=lambda *a, **k: events.append('reverse') or empty_reverse), \
+             patch.object(bus, 'mirror', side_effect=lambda *a, **k: events.append('mirror') or empty_mirror), \
+             patch.object(bus, 'unresolved', return_value=([], [])):
+            result = bus.once(self.settings, apply_changes=True)
+        self.assertEqual(events, ['intake', 'reverse', 'mirror'])
+        self.assertIs(result['jira_to_fireflow'], empty_reverse)
 
 
 if __name__ == '__main__':

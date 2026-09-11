@@ -11,6 +11,7 @@ from algosec_jira_bus import bus
 
 def summary():
     return {'intake': {'created': [], 'skipped': [], 'refused': [], 'deferred': [], 'failed': []},
+            'jira_to_fireflow': {'updated': [], 'failed': [], 'parked': []},
             'mirror': {'updated': [], 'parked': [], 'failed': []}, 'pending': [], 'missing_ids': []}
 
 
@@ -43,7 +44,9 @@ class PollCli(unittest.TestCase):
 
     def test_partial_failures_and_unresolved_work_are_nonzero(self):
         for section, name in [('intake', 'failed'), ('mirror', 'failed'), ('intake', 'refused'),
-                              ('mirror', 'parked'), (None, 'pending'), (None, 'missing_ids')]:
+                              ('mirror', 'parked'), ('jira_to_fireflow', 'failed'),
+                              ('jira_to_fireflow', 'parked'),
+                              (None, 'pending'), (None, 'missing_ids')]:
             with self.subTest(section=section, name=name):
                 result = summary()
                 (result[section] if section else result)[name] = ['NET-1']

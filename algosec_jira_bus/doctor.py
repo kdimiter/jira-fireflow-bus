@@ -16,6 +16,7 @@ useful even on a day when Jira is down.
 """
 from .adf import read_table
 from .jira import Jira
+from .jira_updates import validate_jira_to_fireflow
 from .queue import Failures
 from .sync import build, MappingError, validate_for_adapter, State, mapped_fields, intake_mode
 
@@ -85,6 +86,21 @@ def local(settings, state):
                                 'issue is refused as unmapped.'))
 
     fireflow = settings.get('fireflow') or {}
+    try:
+        reverse = validate_jira_to_fireflow(settings.get('jira_to_fireflow'))
+    except ValueError as error:
+        reverse = None
+        results.append(note(FAIL, 'jira_to_fireflow.config', str(error)))
+    if reverse is not None:
+        if fireflow.get('legacy_rt_enabled') is not True:
+            results.append(note(
+                FAIL, 'jira_to_fireflow.transport',
+                'Enable fireflow.legacy_rt_enabled to deliver mapped Jira updates.'))
+        else:
+            results.append(note(
+                OK, 'jira_to_fireflow.transport',
+                'internal comments and %d mapped statuses use FireFlow RT REST'
+                % len(reverse['status_map'])))
     devices = list(fireflow.get('devices') or [])
     allowed = list(fireflow.get('allowed_devices') or [])
     if not devices:

@@ -6,6 +6,7 @@ default for the one that changes anything: the first thing anybody should see is
 bus *would* do with their real issues.
 """
 from contextlib import contextmanager
+from copy import deepcopy
 from functools import partial
 import argparse
 import json
@@ -15,11 +16,12 @@ import time
 
 from .config import private_json
 from .fireflow import FireFlow
-from .transport import request_json
+from .transport import request_json, request_text
 from .runtime import Audit
 
 from .doctor import run as diagnose
-from .jira import Jira
+from .jira import ISSUE_ID, Jira
+from .jira_updates import sync_updates
 from .journal import Journal
 from .queue import Failures
 from .reconcile import reconcile
@@ -58,7 +60,8 @@ def build(settings, state_dir=None):
     if type(timeout) is not int or not 1 <= timeout <= 600:
         raise ValueError('fireflow.request_timeout must be an integer from 1 to 600 seconds')
     fireflow = FireFlow(settings['fireflow'], 'MANAGE', audit,
-                       request=partial(request_json, timeout=timeout))
+                       request=partial(request_json, timeout=timeout),
+                       text_request=partial(request_text, timeout=timeout))
     state = State(path)
     return fireflow, state, Failures(state), Journal(directory)
 
@@ -71,19 +74,31 @@ def unresolved(state):
     request created without an id can never be mirrored back to the person who asked.
     """
     entries = state.entries()
-    return ([key for key, entry in sorted(entries.items()) if entry.get('pending_transition') or entry.get('pending_fields')],
+    def reverse_pending(entry):
+        sync = entry.get('jira_sync')
+        return isinstance(sync, dict) and any(
+            isinstance(stream, dict) and stream.get('pending')
+            for stream in sync.values())
+
+    return ([key for key, entry in sorted(entries.items())
+             if entry.get('pending_transition') or entry.get('pending_fields')
+             or reverse_pending(entry)],
             [key for key, entry in sorted(entries.items())
              if entry.get('operation_id') and not entry.get('change_request_id')])
 
 
 def once(settings, apply_changes=False, log=print, state_dir=None):
     with session(settings, state_dir) as (fireflow, state, failures, journal):
+        jira = Jira(settings['jira'])
         intake = run(settings, fireflow, state, dry_run=not apply_changes, log=log,
-                     failures=failures, journal=journal)
+                     failures=failures, journal=journal, jira=jira)
+        reverse = sync_updates(settings, fireflow, state, dry_run=not apply_changes,
+                               log=log, journal=journal, jira=jira)
         back = mirror(settings, fireflow, state, dry_run=not apply_changes, log=log,
-                      failures=failures, journal=journal)
+                      failures=failures, journal=journal, jira=jira)
         pending, missing = unresolved(state)
-        return {'intake': intake, 'mirror': back, 'pending': pending, 'missing_ids': missing}
+        return {'intake': intake, 'jira_to_fireflow': reverse, 'mirror': back,
+                'pending': pending, 'missing_ids': missing}
 
 
 def apply_mode(settings, arguments):
@@ -106,6 +121,7 @@ def apply_mode(settings, arguments):
 # Anything in this list means the pass left work undone. Some are errors and some are
 # silences; from the outside they are the same thing -- a reason not to report success.
 UNFINISHED = (('intake', 'failed'), ('intake', 'refused'),
+              ('jira_to_fireflow', 'failed'), ('jira_to_fireflow', 'parked'),
               ('mirror', 'failed'), ('mirror', 'parked'),
               (None, 'pending'), (None, 'missing_ids'))
 
@@ -159,8 +175,30 @@ def examine(settings, state_dir=None, log=print):
 
 
 def show_queue(settings, state_dir=None):
-    _, _, failures, _ = build(settings, state_dir)
-    return {'pending': failures.pending(), 'parked': failures.parked()}
+    _, state, failures, _ = build(settings, state_dir)
+    result = {'pending': failures.pending(), 'parked': failures.parked()}
+    reverse = {}
+    for key, entry in sorted(state.entries().items()):
+        sync = entry.get('jira_sync')
+        if not isinstance(sync, dict):
+            continue
+        for stream_name in ('comments', 'statuses'):
+            stream = sync.get(stream_name)
+            pending = stream.get('pending') if isinstance(stream, dict) else None
+            if not isinstance(pending, dict):
+                continue
+            reverse.setdefault(key, []).append({
+                'stream': stream_name,
+                'event_id': pending.get('event_id'),
+                'action': pending.get('action'),
+                **({'target_status': pending.get('value')}
+                   if pending.get('action') == 'status' else {}),
+                'operation_id': pending.get('operation_id'),
+                'parked': pending.get('parked') is True,
+            })
+    if reverse:
+        result['jira_to_fireflow'] = reverse
+    return result
 
 
 def release(settings, key, state_dir=None):
@@ -169,6 +207,34 @@ def release(settings, key, state_dir=None):
             journal.write('unparked', key)
             return True
         return False
+
+
+def acknowledge_jira_update(settings, key, stream_name, event_id, expected_value=None,
+                            state_dir=None):
+    """Acknowledge one inspected ambiguous Jira -> FireFlow operation.
+
+    The operator must name the exact issue, stream and immutable event id. Only a
+    parked pending intent can be consumed; ordinary retries cannot be skipped.
+    """
+    with session(settings, state_dir) as (_, state, _, journal):
+        entry = state.entries().get(key) or {}
+        sync = deepcopy(entry.get('jira_sync') or {})
+        stream = sync.get(stream_name)
+        pending = stream.get('pending') if isinstance(stream, dict) else None
+        if (not isinstance(pending, dict) or pending.get('parked') is not True
+                or pending.get('event_id') != event_id):
+            return False
+        if (pending.get('action') == 'status'
+                and (expected_value is None or pending.get('value') != expected_value)):
+            return False
+        seen = stream.get('seen') or []
+        stream['seen'] = [max([*seen, event_id], key=int)]
+        stream.pop('pending')
+        state.record(key, {'jira_sync': sync})
+        journal.write('unparked', key, direction='jira_to_fireflow',
+                      stream=stream_name, event_id=event_id,
+                      operation_id=pending.get('operation_id'))
+        return True
 
 
 def main(argv=None):
@@ -209,6 +275,15 @@ def main(argv=None):
 
     let_go = modes.add_parser('release', help='let a parked failure be tried once more')
     let_go.add_argument('key', help='Jira issue key')
+
+    acknowledge = modes.add_parser(
+        'ack-jira-update',
+        help='after inspecting FireFlow, consume one parked Jira update')
+    acknowledge.add_argument('key', help='Jira issue key')
+    acknowledge.add_argument('stream', choices=('comments', 'statuses'))
+    acknowledge.add_argument('event_id', help='immutable numeric Jira event id')
+    acknowledge.add_argument('--expected-value',
+                             help='required exact target for a parked status operation')
 
     arguments = parser.parse_args(argv)
     settings = private_json(Path(arguments.config).expanduser(), os.getuid())
@@ -257,6 +332,17 @@ def main(argv=None):
         # operation id anyway, and a person is meant to inspect the ticket first.
         print(json.dumps({'released': freed, 'key': arguments.key}, ensure_ascii=False))
         return 0 if freed else 1
+
+    if arguments.mode == 'ack-jira-update':
+        if not ISSUE_ID.fullmatch(arguments.event_id):
+            parser.error('event_id must be a positive numeric Jira event id')
+        acknowledged = acknowledge_jira_update(
+            settings, arguments.key, arguments.stream, arguments.event_id,
+            arguments.expected_value, arguments.state_dir)
+        print(json.dumps({'acknowledged': acknowledged, 'key': arguments.key,
+                          'stream': arguments.stream, 'event_id': arguments.event_id},
+                         ensure_ascii=False))
+        return 0 if acknowledged else 1
 
     if arguments.mode == 'reconcile':
         report = check(settings, heal=not arguments.no_heal, state_dir=arguments.state_dir)

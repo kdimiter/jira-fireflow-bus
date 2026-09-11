@@ -198,5 +198,43 @@ class TLS(unittest.TestCase):
                 request_json({'base_url': 'https://192.0.2.10', **extra}, '/x')
 
 
+class FormTextTransport(unittest.TestCase):
+    def test_form_post_uses_same_tls_redirect_and_proxy_boundary(self):
+        from algosec_jira_bus.transport import request_text
+        from urllib.parse import parse_qs
+        opener = Opener(Response('RT/3.8.2 200 Ok\n\nЯкий статус?'.encode(), 'text/plain; charset=utf-8'))
+        with patch('algosec_jira_bus.transport.urllib.request.build_opener', return_value=opener) as build:
+            result = request_text({'base_url': 'https://asms.example.test',
+                                   'tls_certificate_sha256': 'a' * 64},
+                                  '/FireFlow/REST/1.0/ticket/42/comment', method='POST',
+                                  body={'content': 'Text: Який статус?\n'},
+                                  headers={'Cookie': 'RT_SID_FireFlow.443=session_1'})
+        self.assertIn('Який статус?', result)
+        request = opener.calls[0][0]
+        self.assertEqual(parse_qs(request.data.decode()), {'content': ['Text: Який статус?\n']})
+        self.assertEqual(request.get_header('Content-type'), 'application/x-www-form-urlencoded; charset=utf-8')
+        self.assertTrue(any(isinstance(h, NoRedirect) for h in build.call_args.args))
+        self.assertTrue(any(isinstance(h, PinnedHTTPSHandler) for h in build.call_args.args))
+        self.assertEqual(next(h.proxies for h in build.call_args.args if hasattr(h, 'proxies')), {})
+
+    def test_text_transport_rejects_html_oversize_and_invalid_utf8(self):
+        from algosec_jira_bus.transport import request_text
+        for response in (Response(b'<html>login</html>', 'text/html'),
+                         Response(b'x' * (MAX_RESPONSE_BYTES + 1), 'text/plain'),
+                         Response(b'\xff', 'text/plain')):
+            with self.subTest(response=response), patch(
+                    'algosec_jira_bus.transport.urllib.request.build_opener',
+                    return_value=Opener(response)), self.assertRaises(ValueError):
+                request_text({'base_url': 'https://asms.example.test'}, '/x')
+
+    def test_form_size_and_types_are_checked_before_network(self):
+        from algosec_jira_bus.transport import request_text
+        for body in ({'content': 'x' * 262145}, {'content': []}, 'raw', {'content': '\x00'}):
+            with self.subTest(body_type=type(body)), patch(
+                    'algosec_jira_bus.transport.urllib.request.build_opener') as build, self.assertRaises(ValueError):
+                request_text({'base_url': 'https://asms.example.test'}, '/x', method='POST', body=body)
+            build.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

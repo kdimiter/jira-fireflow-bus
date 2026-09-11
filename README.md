@@ -19,15 +19,18 @@ runtime dependencies; the server does not clone the repository, build an image, 
 Python packages.
 
 ```sh
-# 1. Download these two assets from release v0.2.6, then verify and run:
-sha256sum -c algosec-jira-bus-0.2.6-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run
+# 1. Download these two assets from release v0.3.0, then verify and run:
+sha256sum -c algosec-jira-bus-0.3.0-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run
 
 # 2. Re-run the configuration wizard after deployment if needed:
 sudo bus_conf
 
 # Refresh only a renewed/replaced FireFlow certificate pin:
 sudo bus_conf --refresh-certificate
+
+# Enable or change Jira -> FireFlow comments and status synchronization:
+sudo bus_conf --jira-sync
 
 # 3. Inspect the service:
 sudo docker ps --filter name=algosec-jira-bus
@@ -37,8 +40,8 @@ sudo docker logs --tail 100 algosec-jira-bus
 Upgrade an existing installer-managed container without entering or rewriting its secrets:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.2.6-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run --upgrade
+sha256sum -c algosec-jira-bus-0.3.0-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run --upgrade
 
 # For every later release:
 sudo bus_update ./algosec-jira-bus-VERSION-docker-amd64.run \
@@ -52,11 +55,11 @@ container reports `READY`; failure restores the prior `bus.json` and restarts th
 For a new environment, install the ready image and the two host preparation scripts first:
 
 ```sh
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run --prepare-only
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
 # Install the repository Forge app once, then prepare Jira:
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --project-key ALGO --apply
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run
 ```
 
 The `.sh` helpers run through the bundled Docker image and do not use host Python.
@@ -79,7 +82,18 @@ API credentials again; enter the current values even when changing only one sett
 FireFlow authentication, the wizard automatically loads all permitted FireFlow-supported
 device tree names from ASMS; they are not typed manually.
 
-Download: [GitHub Release v0.2.6](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.2.6).
+`sudo bus_conf --jira-sync` is a separate menu that preserves both API credentials. It can copy
+new Jira comments into FireFlow as internal History comments and apply an editable, explicit
+`Jira status=FireFlow status` map. Existing comments and transitions are recorded as the initial
+baseline and are not replayed. Existing deployments remain disabled after upgrade until this
+menu is enabled deliberately. This direction permits only reopen/close outcomes: `open`,
+`resolved`, `cancelled`, and `rejected`; approval and implementation stages remain FireFlow-owned.
+Role/group-restricted and Jira Service Management internal comments are not copied.
+If a FireFlow POST outcome is ambiguous, `queue` exposes only event metadata and
+`ack-jira-update KEY comments|statuses EVENT_ID` consumes it only after an operator verifies
+FireFlow History. The deployment guide gives the exact container commands.
+
+Download: [GitHub Release v0.3.0](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.0).
 The wizard validates both API connections and keeps `apply: false` unless the operator enters
 `START`.
 
@@ -97,7 +111,7 @@ package download is used:
 ```sh
 sudo install -d -m 0700 /root/jira-fireflow-deploy
 sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.2.6-docker-amd64.run \
+sudo sh algosec-jira-bus-0.3.0-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json
 ```
@@ -131,6 +145,8 @@ For native systemd installation and complete Jira/FireFlow preparation, see the
 - Templates, devices, and writable FireFlow fields are allowlisted.
 - Durable operation identifiers, pre-submit receipts, and reconciliation limit duplicate
   changes after uncertain API outcomes.
+- Jira-to-FireFlow writes are opt-in and use an explicit status allowlist. FireFlow-originated
+  Jira events carry an origin marker to prevent feedback loops.
 - One poll scans at most `jira.scan_limit` issues and creates at most `max_per_pass` requests.
 - Write mode requires a successful connectivity doctor and explicit operator activation.
 
@@ -154,15 +170,15 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.2.6-linux.run
+  --output dist/algosec-jira-bus-0.3.0-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.2.6-linux.run \
+  dist/algosec-jira-bus-0.3.0-linux.run \
   dist/algosec-jira-bus-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
   --image dist/algosec-jira-bus-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.2.6-docker-amd64.run
+  --output dist/algosec-jira-bus-0.3.0-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.2.6 --image algosec-jira-bus:0.2.6
+  --directory dist --version 0.3.0 --image algosec-jira-bus:0.3.0
 ```
 
 The bus submits and tracks a change request. Approval, planning, implementation, and policy
@@ -171,5 +187,11 @@ issues can initiate FireFlow requests after the configured approval gate.
 The Jira issue creator's email is sent as the FireFlow `Requestor`; FireFlow assigns `Owner`
 according to its workflow. Jira must expose `creator.emailAddress` to the dedicated API account,
 otherwise the issue is refused instead of being attributed to the wrong person.
+
+Reverse synchronization uses the FireFlow RT REST compatibility endpoint because the public
+FireFlow API exposes request creation and reads but no internal-comment or status-transition
+operation. Test the configured mappings against the customer's FireFlow version before enabling
+them. Jira authors are preserved in comment text; FireFlow records the integration API account as
+the technical actor.
 
 Licensed under Apache-2.0. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
