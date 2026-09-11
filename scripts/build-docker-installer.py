@@ -14,7 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MARKER = b'\n__ALGOSEC_DOCKER_PAYLOAD__\n'
 IMAGE_NAME = 'algosec-jira-bus-docker-amd64.tar.gz'
 STAGER_NAME = 'stage-config.py'
+UPGRADER_NAME = 'upgrade-config.py'
 BUS_CONF_NAME = 'bus_conf'
+BUS_UPDATE_NAME = 'bus_update'
 PREPARE_NAMES = ('prepare-fireflow.sh', 'prepare-jira.sh')
 HOST_SETUP = r'''if [ "${1:-}" != "--help" ] && [ "${1:-}" != "--extract" ]; then
     [ "$(uname -s)" = Linux ] || { echo 'Linux host required.' >&2; exit 1; }
@@ -72,7 +74,7 @@ if hashlib.sha256(payload).hexdigest() != '__PAYLOAD_DIGEST__':
     raise SystemExit('Docker installer checksum mismatch; nothing extracted.')
 args = sys.argv[2:]
 if args == ['--help']:
-    print('Usage: sudo sh algosec-jira-bus-0.2.5-docker-amd64.run [--prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]\n       sh algosec-jira-bus-0.2.5-docker-amd64.run --extract NEW_DIRECTORY\nContains the ready linux/amd64 image; the target host does not build software.')
+    print('Usage: sudo sh algosec-jira-bus-0.2.6-docker-amd64.run [--upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]\n       sh algosec-jira-bus-0.2.6-docker-amd64.run --extract NEW_DIRECTORY\nContains the ready linux/amd64 image; the target host does not build software.')
     raise SystemExit(0)
 extract_only = bool(args and args[0] == '--extract')
 if extract_only and len(args) != 2:
@@ -106,7 +108,8 @@ try:
     else:
         image = destination / '__IMAGE_NAME__'
         image_digest = manifest['files']['__IMAGE_NAME__']
-        interactive = '--config-file' not in args and '--prepare-only' not in args
+        interactive = all(option not in args for option in
+                          ('--config-file', '--prepare-only', '--upgrade'))
         terminal = os.fdopen(os.dup(3), 'rb', buffering=0) if interactive else None
         try:
             result = subprocess.run(['sh', str(destination / 'install-docker.sh'),
@@ -142,7 +145,9 @@ def build(image: Path, helper: Path, output: Path, revision=None):
         IMAGE_NAME: image.read_bytes(),
         'install-docker.sh': helper.read_bytes(),
         STAGER_NAME: (ROOT / 'packaging/docker' / STAGER_NAME).read_bytes(),
+        UPGRADER_NAME: (ROOT / 'packaging/docker' / UPGRADER_NAME).read_bytes(),
         BUS_CONF_NAME: (ROOT / 'packaging/docker' / BUS_CONF_NAME).read_bytes(),
+        BUS_UPDATE_NAME: (ROOT / 'packaging/docker' / BUS_UPDATE_NAME).read_bytes(),
     }
     for name in PREPARE_NAMES:
         files[name] = (ROOT / 'scripts' / name).read_bytes()

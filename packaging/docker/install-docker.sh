@@ -6,12 +6,15 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ARCHIVE="$HERE/algosec-jira-bus-docker-amd64.tar.gz"
 IMAGE_SHA256=""
 DATA=/opt/algosec-jira-docker
-IMAGE=algosec-jira-bus:0.2.5
+IMAGE=algosec-jira-bus:0.2.6
 CONFIG_FILE=""
 SECRETS_FILE=""
 CA_FILE=""
 PREPARE_ONLY=0
+UPGRADE_ONLY=0
 BUS_CONF_SOURCE="$HERE/bus_conf"
+BUS_UPDATE_SOURCE="$HERE/bus_update"
+CONFIG_UPGRADER="$HERE/upgrade-config.py"
 FIREFLOW_PREPARE_SOURCE="$HERE/prepare-fireflow.sh"
 JIRA_PREPARE_SOURCE="$HERE/prepare-jira.sh"
 if [ ! -f "$FIREFLOW_PREPARE_SOURCE" ] && [ -f "$HERE/../../scripts/prepare-fireflow.sh" ]; then
@@ -28,7 +31,8 @@ while [ "$#" -gt 0 ]; do
         --secrets-file) [ "$#" -ge 2 ] || exit 2; SECRETS_FILE=$2; shift 2;;
         --ca-file) [ "$#" -ge 2 ] || exit 2; CA_FILE=$2; shift 2;;
         --prepare-only) PREPARE_ONLY=1; shift;;
-        --help) echo 'Usage: sh install-docker.sh --image-archive FILE --image-sha256 HEX [--prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]'; exit 0;;
+        --upgrade) UPGRADE_ONLY=1; shift;;
+        --help) echo 'Usage: sh install-docker.sh --image-archive FILE --image-sha256 HEX [--upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]'; exit 0;;
         *) echo "Unknown option: $1" >&2; exit 2;;
     esac
 done
@@ -39,6 +43,10 @@ case "$DATA" in *:*|*,*) echo 'Data directory cannot contain colon or comma.' >&
 [ -f "$ARCHIVE" ] || { echo "Image archive missing: $ARCHIVE" >&2; exit 1; }
 [ -f "$BUS_CONF_SOURCE" ] && [ ! -L "$BUS_CONF_SOURCE" ] \
     || { echo 'Verified bus_conf helper is missing.' >&2; exit 1; }
+for HELPER in "$BUS_UPDATE_SOURCE" "$CONFIG_UPGRADER"; do
+    [ -f "$HELPER" ] && [ ! -L "$HELPER" ] \
+        || { echo "Verified upgrade helper is missing: $HELPER" >&2; exit 1; }
+done
 for HELPER in "$FIREFLOW_PREPARE_SOURCE" "$JIRA_PREPARE_SOURCE"; do
     [ -f "$HELPER" ] && [ ! -L "$HELPER" ] \
         || { echo "Verified preparation helper is missing: $HELPER" >&2; exit 1; }
@@ -49,6 +57,8 @@ if { [ -n "$CONFIG_FILE" ] && [ -z "$SECRETS_FILE" ]; } || \
     echo 'Use --config-file and --secrets-file together.' >&2
     exit 1
 fi
+[ "$UPGRADE_ONLY" -eq 0 ] || { [ "$PREPARE_ONLY" -eq 0 ] && [ -z "$CONFIG_FILE" ]; } \
+    || { echo '--upgrade cannot be combined with configuration or preparation options.' >&2; exit 2; }
 [ -z "$CA_FILE" ] || [ -n "$CONFIG_FILE" ] \
     || { echo '--ca-file requires --config-file and --secrets-file.' >&2; exit 1; }
 if [ -n "$CONFIG_FILE" ]; then
@@ -174,12 +184,12 @@ print(canonical)
 PY
 }
 install_helpers() {
-    python3 - "$BUS_CONF_SOURCE" "$FIREFLOW_PREPARE_SOURCE" \
+    python3 - "$BUS_CONF_SOURCE" "$BUS_UPDATE_SOURCE" "$FIREFLOW_PREPARE_SOURCE" \
         "$JIRA_PREPARE_SOURCE" "$DATA" <<'PY'
 import os, pathlib, stat, sys, tempfile
 
-sources = list(map(pathlib.Path, sys.argv[1:4]))
-data = pathlib.Path(sys.argv[4])
+sources = list(map(pathlib.Path, sys.argv[1:5]))
+data = pathlib.Path(sys.argv[5])
 
 def atomic_write(destination, payload, mode):
     destination = pathlib.Path(destination)
@@ -205,7 +215,8 @@ def atomic_write(destination, payload, mode):
             pass
 
 for source, destination in zip(
-        sources, ('/usr/local/sbin/bus_conf', '/usr/local/sbin/prepare-fireflow.sh',
+        sources, ('/usr/local/sbin/bus_conf', '/usr/local/sbin/bus_update',
+                  '/usr/local/sbin/prepare-fireflow.sh',
                   '/usr/local/sbin/prepare-jira.sh')):
     source_fd = os.open(source, os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) |
                         getattr(os, 'O_NOFOLLOW', 0))
@@ -338,7 +349,7 @@ case "$ARCH" in x86_64|amd64) ;; *) echo "This image requires an amd64 Docker ho
 docker load -i "$STAGED_ARCHIVE"
 docker image inspect "$IMAGE" >/dev/null
 IMAGE_LABEL=$(docker image inspect --format '{{index .Config.Labels "org.algosec.jira-bus.image"}}' "$IMAGE")
-[ "$IMAGE_LABEL" = 0.2.5 ] || { echo 'Loaded archive is not the expected Jira FireFlow bus image.' >&2; exit 1; }
+[ "$IMAGE_LABEL" = 0.2.6 ] || { echo 'Loaded archive is not the expected Jira FireFlow bus image.' >&2; exit 1; }
 IMAGE_PLATFORM=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")
 [ "$IMAGE_PLATFORM" = linux/amd64 ] || { echo "Loaded image has unexpected platform: $IMAGE_PLATFORM" >&2; exit 1; }
 DATA=$(validate_data_dir "$DATA" initialize)
@@ -353,6 +364,84 @@ MOUNT_RW=rw
 if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = Enforcing ]; then
     MOUNT_RO=ro,Z
     MOUNT_RW=rw,Z
+fi
+if [ "$UPGRADE_ONLY" -eq 1 ]; then
+    docker container inspect algosec-jira-bus >/dev/null 2>&1 \
+        || { echo 'No installed algosec-jira-bus container to upgrade.' >&2; exit 1; }
+    LABEL=$(docker inspect -f '{{index .Config.Labels "org.algosec.jira-bus.managed"}}' algosec-jira-bus)
+    [ "$LABEL" = helper ] \
+        || { echo 'Existing container is not managed by this installer.' >&2; exit 1; }
+    [ "$(docker inspect -f '{{.State.Running}}' algosec-jira-bus)" = true ] \
+        || { echo 'Existing container is not running; inspect it before upgrading.' >&2; exit 1; }
+    docker container inspect algosec-jira-bus-previous >/dev/null 2>&1 \
+        && { echo 'A previous rollback container already exists; inspect it before upgrading.' >&2; exit 1; }
+    [ -f "$DATA/config/secrets.json" ] && [ ! -L "$DATA/config/secrets.json" ] \
+        || { echo 'Existing secrets.json is missing or unsafe; current container was not touched.' >&2; exit 1; }
+    MIGRATED_CONFIG=$STAGE_DIR/bus.json
+    DOCTOR_STATE=$(mktemp -d "$DATA/.doctor-state.XXXXXX")
+    chown 10001:10001 "$DOCTOR_STATE"
+    chmod 0700 "$DOCTOR_STATE"
+    python3 "$CONFIG_UPGRADER" stage "$DATA/config/bus.json" "$MIGRATED_CONFIG"
+    echo 'Checking the new image with migrated config and the existing read-only secrets.'
+    docker run --rm --user 10001:10001 --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+        --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
+        --memory 512m --memory-swap 512m \
+        -v "$DATA/config:/etc/algosec-jira-bus:$MOUNT_RO" \
+        -v "$MIGRATED_CONFIG:/etc/algosec-jira-bus/bus.json:$MOUNT_RO" \
+        -v "$DOCTOR_STATE:/var/lib/algosec-jira-bus:$MOUNT_RW" \
+        "$IMAGE" doctor
+    BACKUP=$DATA/.bus-json.upgrade-backup
+    if ! docker stop algosec-jira-bus >/dev/null; then
+        echo 'Could not stop the current container; upgrade cancelled.' >&2
+        exit 1
+    fi
+    if ! docker rename algosec-jira-bus algosec-jira-bus-previous; then
+        docker start algosec-jira-bus >/dev/null 2>&1 || true
+        echo 'Could not reserve the rollback container; previous service restarted.' >&2
+        exit 1
+    fi
+    if ! python3 "$CONFIG_UPGRADER" apply "$DATA/config/bus.json" "$MIGRATED_CONFIG" "$BACKUP"; then
+        docker rename algosec-jira-bus-previous algosec-jira-bus >/dev/null 2>&1 || true
+        docker start algosec-jira-bus >/dev/null 2>&1 || true
+        echo 'Could not install migrated configuration; previous service restored.' >&2
+        exit 1
+    fi
+    READY=0
+    STARTED=$(date +%s)
+    if docker run -d --name algosec-jira-bus --label org.algosec.jira-bus.managed=helper \
+        --restart unless-stopped --user 10001:10001 --read-only \
+        --tmpfs /tmp:rw,nosuid,nodev,size=64m --cap-drop ALL --security-opt no-new-privileges \
+        --pids-limit 128 --memory 512m --memory-swap 512m \
+        --log-opt max-size=10m --log-opt max-file=3 \
+        -v "$DATA/config:/etc/algosec-jira-bus:$MOUNT_RO" \
+        -v "$DATA/state:/var/lib/algosec-jira-bus:$MOUNT_RW" "$IMAGE" >/dev/null; then
+        ATTEMPT=0
+        while [ "$ATTEMPT" -lt 90 ]; do
+            [ "$(docker inspect -f '{{.State.Running}}' algosec-jira-bus 2>/dev/null || true)" = true ] \
+                || break
+            if docker logs --since "$STARTED" algosec-jira-bus 2>&1 \
+                | grep -q '^READY: startup doctor passed\.$'; then
+                READY=1
+                break
+            fi
+            sleep 2
+            ATTEMPT=$((ATTEMPT + 2))
+        done
+    fi
+    if [ "$READY" -eq 1 ] && install_helpers; then
+        python3 "$CONFIG_UPGRADER" discard "$BACKUP"
+        docker rm algosec-jira-bus-previous >/dev/null 2>&1 || true
+        echo 'Upgrade completed. Existing secrets and state were preserved.'
+        echo 'Check: docker logs --tail 100 algosec-jira-bus'
+        exit 0
+    fi
+    echo 'New container failed readiness; restoring the previous container and config.' >&2
+    docker container inspect algosec-jira-bus >/dev/null 2>&1 \
+        && docker rm -f algosec-jira-bus >/dev/null 2>&1 || true
+    python3 "$CONFIG_UPGRADER" restore "$DATA/config/bus.json" "$BACKUP" || true
+    docker rename algosec-jira-bus-previous algosec-jira-bus >/dev/null 2>&1 || true
+    docker start algosec-jira-bus >/dev/null 2>&1 || true
+    exit 1
 fi
 if [ -n "$CONFIG_FILE" ]; then
     PENDING_CONFIG=$(mktemp -d "$DATA/.config.pending.XXXXXX")

@@ -1,0 +1,52 @@
+#!/bin/sh
+# Verify a downloaded release installer, then perform a non-interactive container upgrade.
+set -eu
+umask 077
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+[ "$(id -u)" -eq 0 ] || { echo 'Run: sudo bus_update INSTALLER.run [INSTALLER.run.sha256]' >&2; exit 1; }
+[ "$#" -ge 1 ] && [ "$#" -le 2 ] \
+    || { echo 'Usage: sudo bus_update INSTALLER.run [INSTALLER.run.sha256]' >&2; exit 2; }
+INSTALLER=$1
+CHECKSUM=${2:-$1.sha256}
+STAGE=$(mktemp -d /tmp/algosec-jira-update.XXXXXX)
+trap 'rm -rf "$STAGE"' 0 HUP INT TERM
+STAGED_INSTALLER=$STAGE/installer.run
+python3 - "$INSTALLER" "$CHECKSUM" "$STAGED_INSTALLER" <<'PY'
+import hashlib, os, pathlib, re, stat, sys
+installer, checksum, staged = map(pathlib.Path, sys.argv[1:])
+def open_regular(path, limit):
+    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) | getattr(os, 'O_NOFOLLOW', 0))
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > limit:
+        os.close(fd)
+        raise SystemExit('Update input must be a regular single-link file')
+    return fd
+checksum_fd = open_regular(checksum, 4096)
+try:
+    raw_checksum = os.read(checksum_fd, 4097).decode('ascii', 'strict').strip()
+finally:
+    os.close(checksum_fd)
+match = re.fullmatch(r'([0-9a-fA-F]{64})  ([^/\r\n]+)', raw_checksum)
+if not match or match.group(2) != installer.name:
+    raise SystemExit('Checksum file does not match the installer name')
+installer_fd = open_regular(installer, 10 * 1024 * 1024 * 1024)
+digest = hashlib.sha256()
+try:
+    with staged.open('xb') as output:
+        os.fchmod(output.fileno(), 0o600)
+        while True:
+            block = os.read(installer_fd, 1024 * 1024)
+            if not block:
+                break
+            digest.update(block)
+            output.write(block)
+        output.flush()
+        os.fsync(output.fileno())
+finally:
+    os.close(installer_fd)
+digest = digest.hexdigest()
+if digest != match.group(1).lower():
+    raise SystemExit('Installer SHA256 mismatch; current container was not touched')
+PY
+sh "$STAGED_INSTALLER" --upgrade
