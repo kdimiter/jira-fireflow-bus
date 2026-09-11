@@ -6,7 +6,7 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 unset PYTHONPATH PYTHONHOME DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
 CONTAINER=algosec-jira-bus
-EXPECTED_IMAGE=0.3.4
+EXPECTED_IMAGE=0.3.5
 PATH_FILE=/etc/algosec-jira-bus-docker.path
 LOCK=/run/lock/algosec-jira-bus-config.lock
 MODE=--reconfigure
@@ -14,11 +14,10 @@ case "${1:-}" in
     '') ;;
     --refresh-certificate) MODE=--refresh-certificate; shift;;
     --jira-sync) MODE=--jira-sync; shift;;
-    --owner-assignees) MODE=--owner-assignees; shift;;
-    --help) echo 'Usage: sudo bus_conf [--refresh-certificate|--jira-sync|--owner-assignees]'; exit 0;;
-    *) echo 'Usage: sudo bus_conf [--refresh-certificate|--jira-sync|--owner-assignees]' >&2; exit 2;;
+    --help) echo 'Usage: sudo bus_conf [--refresh-certificate|--jira-sync]'; exit 0;;
+    *) echo 'Usage: sudo bus_conf [--refresh-certificate|--jira-sync]' >&2; exit 2;;
 esac
-[ "$#" -eq 0 ] || { echo 'Usage: sudo bus_conf [--refresh-certificate|--jira-sync|--owner-assignees]' >&2; exit 2; }
+[ "$#" -eq 0 ] || { echo 'Usage: sudo bus_conf [--refresh-certificate|--jira-sync]' >&2; exit 2; }
 
 [ "$(uname -s)" = Linux ] || { echo 'Linux host required.' >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo 'Run: sudo bus_conf' >&2; exit 1; }
@@ -73,9 +72,6 @@ if [ "$MODE" = --refresh-certificate ]; then
 elif [ "$MODE" = --jira-sync ]; then
     echo '=== Jira to FireFlow synchronization ==='
     echo 'Existing URLs, credentials, fields and device trees will be preserved.'
-elif [ "$MODE" = --owner-assignees ]; then
-    echo '=== FireFlow Owner to Jira Assignee mapping ==='
-    echo 'Choose only Jira users that are assignable in the configured project.'
 else
     echo '=== Jira ==='
     echo 'URL, email and API token will be requested.'

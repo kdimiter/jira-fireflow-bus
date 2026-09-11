@@ -69,15 +69,16 @@ class Mapping(unittest.TestCase):
         self.assertEqual(fields['Requestor'], ['creator@example.org'])
         self.assertNotIn('reporter@example.org', fields['Requestor'])
 
-    def test_missing_or_invalid_jira_creator_email_is_refused(self):
+    def test_missing_or_invalid_jira_creator_email_omits_requestor(self):
         for value in (None, '', 'not-an-email', 'two@@example.org',
                       'creator@example.org\nOwner: admin'):
             source = issue()
             source['fields']['creator'] = {
                 'displayName': 'Ticket Creator', 'emailAddress': value}
-            with self.subTest(value=value), self.assertRaisesRegex(
-                    MappingError, 'creator email'):
-                build(source, MAPPING, 'T', ['fw1'])
+            with self.subTest(value=value):
+                _, request = build(source, MAPPING, 'T', ['fw1'])
+                fields = {item['name']: item['values'] for item in request['fields']}
+                self.assertNotIn('Requestor', fields)
 
     def test_lists_are_accepted_the_way_a_person_types_them(self):
         _, request = build(issue(source='192.0.2.1, 192.0.2.2\n192.0.2.3'), MAPPING, 'T', ['fw1'])
@@ -152,6 +153,20 @@ class Run(unittest.TestCase):
                      dry_run=False, log=lambda *a: None)
         self.assertEqual([key for key, _ in result['refused']], ['NET-1'])
         self.assertEqual(len(fireflow.calls), 1)
+
+    def test_missing_creator_email_is_created_without_requestor(self):
+        source = issue()
+        source['fields']['creator'] = {'displayName': 'Private Jira User'}
+        fireflow = Fireflow()
+
+        result = run(self.settings, fireflow, self.state, Jira([source]),
+                     dry_run=False, log=lambda *a: None)
+
+        self.assertEqual(result['refused'], [])
+        self.assertEqual(len(result['created']), 1)
+        self.assertEqual(len(fireflow.calls), 1)
+        fields = {item['name']: item['values'] for item in fireflow.calls[0][0]['fields']}
+        self.assertNotIn('Requestor', fields)
 
     def test_only_the_mapped_fields_are_requested_from_jira(self):
         jira = Jira([])

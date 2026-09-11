@@ -181,104 +181,6 @@ def configure_jira_to_fireflow(config, settings, account):
     return 0
 
 
-def configured_project_key(settings):
-    """Return the explicit project key, migrating the generated legacy JQL once."""
-    jira = settings.get('jira') if isinstance(settings, dict) else None
-    if not isinstance(jira, dict):
-        raise ValueError('Jira configuration is missing')
-    project = jira.get('project_key')
-    if isinstance(project, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{1,20}', project):
-        return project
-    jql = jira.get('jql')
-    match = (re.search(r'\bproject\s*=\s*([A-Z][A-Z0-9_]{1,20})\b', jql,
-                       flags=re.IGNORECASE) if isinstance(jql, str) else None)
-    if match:
-        return match.group(1).upper()
-    project = ask('Jira project key', 'NET').upper()
-    if not re.fullmatch(r'[A-Z][A-Z0-9_]{1,20}', project):
-        raise ValueError('Invalid Jira project key')
-    return project
-
-
-def configure_owner_assignees(config, settings, account):
-    """Map FireFlow owner names to verified Jira assignees without editing JSON."""
-    mirror = settings.get('mirror')
-    if not isinstance(mirror, dict):
-        raise ValueError('Mirror configuration is missing')
-    current = mirror.get('owner_assignees', {})
-    if not isinstance(current, dict):
-        raise ValueError('mirror.owner_assignees must be an object')
-    mappings = dict(current)
-    project = configured_project_key(settings)
-    secrets = private_json(config.parent / 'secrets.json', account.pw_uid,
-                           max_bytes=64 * 1024)
-    if set(secrets) != {'JIRA_API_TOKEN', 'ASMS_API_PASSWORD'}:
-        raise ValueError('Invalid container secrets.json')
-    env = dict(os.environ, **secrets)
-    old_token = os.environ.get('JIRA_API_TOKEN')
-    os.environ['JIRA_API_TOKEN'] = secrets['JIRA_API_TOKEN']
-    try:
-        from algosec_jira_bus.jira import Jira
-        jira = Jira(settings['jira'])
-        print('Using the configured Jira project for assignability checks.')
-        if mappings:
-            print('Existing owner mappings:')
-            for owner, account_id in sorted(mappings.items(), key=lambda item: item[0].casefold()):
-                print('  %s -> %s' % (owner, account_id))
-        while True:
-            owner = ask('FireFlow owner name (blank to finish; prefix - to remove)')
-            if not owner:
-                break
-            if owner.startswith('-'):
-                removed = owner[1:].strip()
-                match = next((name for name in mappings
-                              if name.casefold() == removed.casefold()), None)
-                if not match:
-                    raise ValueError('No mapping exists for FireFlow owner ' + removed)
-                del mappings[match]
-                print('Removed mapping for', match)
-                continue
-            if (len(owner) > 256 or owner != owner.strip()
-                    or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in owner)):
-                raise ValueError('Invalid FireFlow owner name')
-            query = ask('Jira assignee email or display name')
-            users = jira.assignable_users(project, query=query)
-            if not users:
-                raise ValueError('No assignable Jira user matched that value')
-            for number, user in enumerate(users, 1):
-                email = user.get('emailAddress')
-                suffix = ' <%s>' % email if isinstance(email, str) and email else ''
-                print('  %d. %s%s [%s]' % (
-                    number, user['displayName'], suffix, user['accountId']))
-            choice = ask('Select Jira user number', '1')
-            if not choice.isdecimal() or not 1 <= int(choice) <= len(users):
-                raise ValueError('Invalid Jira user selection')
-            selected = users[int(choice) - 1]
-            duplicate = next((name for name in mappings
-                              if name.casefold() == owner.casefold() and name != owner), None)
-            if duplicate:
-                del mappings[duplicate]
-            mappings[owner] = selected['accountId']
-            print('Owner mapping saved.')
-    finally:
-        if old_token is None:
-            os.environ.pop('JIRA_API_TOKEN', None)
-        else:
-            os.environ['JIRA_API_TOKEN'] = old_token
-    mirror['owner_assignees'] = mappings
-    settings['jira']['project_key'] = project
-    write_private(config, json.dumps(settings, indent=2, ensure_ascii=False) + '\n',
-                  account.pw_uid, account.pw_gid)
-    result = subprocess.run([
-        sys.executable, '-m', 'algosec_jira_bus.bus', '--config', str(config),
-        '--state-dir', '/var/lib/algosec-jira-bus', 'doctor'], env=env)
-    if result.returncode:
-        print('NOT READY: doctor rejected the owner mapping.')
-        return 1
-    print('Owner-to-assignee mappings saved. Existing credentials and state were preserved.')
-    return 0
-
-
 def origin(value):
     p = urlsplit(value)
     if p.scheme != 'https' or not p.hostname or p.username or p.password or p.path not in ('', '/') or p.query or p.fragment:
@@ -360,7 +262,6 @@ def build_config(template, jira_url, email, project, issue_type, ff_url, ff_user
         raise ValueError('Four distinct Jira custom field IDs are required')
     c = copy.deepcopy(template)
     c['jira'].update(base_url=origin(jira_url), email=email,
-                     project_key=project,
                      jql=f'project = {project} AND issuetype = {issue_type} AND status = "To Do" ORDER BY created ASC')
     c['fireflow'].update(base_url=origin(ff_url), username=ff_user,
                          devices=devices, allowed_devices=devices)
@@ -536,8 +437,6 @@ def main():
                         help='Capture and validate a replacement FireFlow certificate pin')
     parser.add_argument('--jira-sync', action='store_true',
                         help='Configure Jira to FireFlow status and comment synchronization')
-    parser.add_argument('--owner-assignees', action='store_true',
-                        help='Map FireFlow owners to assignable Jira accounts')
     args = parser.parse_args()
     if sys.platform != 'linux' or (not args.container and os.geteuid() != 0):
         raise ValueError('Run on Linux as root')
@@ -565,10 +464,6 @@ def main():
         if not args.container or not configured:
             raise ValueError('Jira to FireFlow setup requires an existing container configuration')
         return configure_jira_to_fireflow(config, existing, account)
-    if args.owner_assignees:
-        if not args.container or not configured:
-            raise ValueError('Owner mapping requires an existing container configuration')
-        return configure_owner_assignees(config, existing, account)
     if configured and not args.reconfigure:
         print('Existing configuration detected; preserving it and secrets.')
         return finish(config, existing, account)

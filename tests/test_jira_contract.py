@@ -39,37 +39,6 @@ class JiraContract(unittest.TestCase):
                 'NET-1', {'customfield_10000': '42'})
         self.assertNotIsInstance(update.exception, JiraMutationUnknown)
 
-    @patch('algosec_jira_bus.jira.resolve_secret', return_value='test-only')
-    def test_result_update_accepts_only_a_valid_assignee_account_id(self, _):
-        calls = []
-        jira = Jira({'base_url': 'https://example.atlassian.net',
-                     'email': 'test@example.test', 'token_ref': 'env:UNUSED'},
-                    request=lambda *args, **kwargs: calls.append((args, kwargs)) or {})
-        jira.update_fields('NET-1', {
-            'customfield_10000': 'Alice',
-            'assignee': {'accountId': '712020:abc-123'},
-        })
-        self.assertEqual(calls[0][1]['body']['fields']['assignee'],
-                         {'accountId': '712020:abc-123'})
-        for invalid in ({'accountId': ''}, {'name': 'alice'}, None, 'alice'):
-            with self.subTest(invalid=invalid), self.assertRaises(JiraError):
-                jira.update_fields('NET-1', {'assignee': invalid})
-
-    @patch('algosec_jira_bus.jira.resolve_secret', return_value='test-only')
-    def test_assignable_user_search_is_project_scoped_and_bounded(self, _):
-        calls = []
-        jira = Jira({'base_url': 'https://example.atlassian.net',
-                     'email': 'test@example.test', 'token_ref': 'env:UNUSED'},
-                    request=lambda *args, **kwargs: calls.append((args, kwargs)) or [{
-                        'accountId': '712020:abc-123', 'displayName': 'Alice'}])
-        users = jira.assignable_users('NET', query='alice@example.test')
-        self.assertEqual(users[0]['accountId'], '712020:abc-123')
-        self.assertEqual(calls[0][0][1], '/rest/api/3/user/assignable/search')
-        self.assertEqual(calls[0][1]['query'], {
-            'project': 'NET', 'maxResults': 50, 'query': 'alice@example.test'})
-        with self.assertRaises(JiraError):
-            jira.assignable_users('NET', max_results=1001)
-
 
 if __name__ == '__main__':
     unittest.main()

@@ -74,7 +74,7 @@ if hashlib.sha256(payload).hexdigest() != '__PAYLOAD_DIGEST__':
     raise SystemExit('Docker installer checksum mismatch; nothing extracted.')
 args = sys.argv[2:]
 if args == ['--help']:
-    print('Usage: sudo sh algosec-jira-bus-0.3.4-docker-amd64.run [--upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]\n       sh algosec-jira-bus-0.3.4-docker-amd64.run --extract NEW_DIRECTORY\nContains the ready linux/amd64 image; the target host does not build software.')
+    print('Usage: sudo sh algosec-jira-bus-0.3.5-docker-amd64.run [--upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]\n       sh algosec-jira-bus-0.3.5-docker-amd64.run --extract NEW_DIRECTORY\nContains the ready linux/amd64 image; the target host does not build software.')
     raise SystemExit(0)
 extract_only = bool(args and args[0] == '--extract')
 if extract_only and len(args) != 2:

@@ -3,7 +3,6 @@
     "base_url": "https://your-tenant.atlassian.net",
     "email": "integration@example.com",
     "token_ref": "env:JIRA_API_TOKEN",
-    "project_key": "NAC",
     "jql": "project = NAC AND issuetype = \"Network Access\" AND status = \"To Do\" ORDER BY created ASC",
     "limit": 50,
     "scan_limit": 1000
@@ -75,7 +74,6 @@
       "status": "customfield_10002",
       "owner": "customfield_10003"
     },
-    "owner_assignees": {},
     "verify_resolved_children": true,
     "outcome_rules": [
       {
