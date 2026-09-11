@@ -53,6 +53,7 @@ class Jira:
         self._issues = issues if issues is not None else [issue()]
         self._transitions = transitions if transitions is not None else ['Done', 'In Progress']
         self.fail = fail or set()
+        self.search_fields = None
 
     def myself(self):
         if 'auth' in self.fail: raise ValueError('denied')
@@ -64,7 +65,16 @@ class Jira:
 
     def search(self, jql, wanted, limit=50):
         if 'search' in self.fail: raise ValueError('bad jql')
-        return self._issues
+        self.search_fields = set(wanted)
+        result = []
+        for source in self._issues:
+            item = dict(source)
+            item['fields'] = {
+                name: value for name, value in (source.get('fields') or {}).items()
+                if name in wanted
+            }
+            result.append(item)
+        return result
 
     def transitions(self, key):
         if 'transitions' in self.fail: raise ValueError('nope')
@@ -163,8 +173,11 @@ class JiraSide(Base):
         self.assertIn('fields', self.detail(results, 'mapping -> customfield_2'))
 
     def test_a_field_that_exists_is_reported_with_its_human_name(self):
-        results = doctor.jira(settings(), self.state, Jira())
+        client = Jira()
+        results = doctor.jira(settings(), self.state, client)
         self.assertEqual(self.detail(results, 'mapping -> customfield_1'), 'Field 1')
+        self.assertIn('creator', client.search_fields)
+        self.assertIn('reporter', client.search_fields)
 
     def test_bad_credentials_stop_the_section_and_say_what_to_check(self):
         results = doctor.jira(settings(), self.state, Jira(fail={'auth'}))
