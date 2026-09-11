@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+- Automatically discover every permitted FireFlow-supported ASMS device tree name during setup instead of requiring a comma-separated list.
+- Validate FireFlow credentials before writing configuration and explain the mandatory first-login password change for new local ASMS users.
+- Accept both current bare and legacy cookie-form `phpSessionId` authentication responses.
+- Ensure preparation helpers use the newly installed release image instead of an older running container image.
+- Allow up to 1000 discovered devices without changing the verified 100 traffic-line limit.
+
 ## 0.2.2
 
 - Fixed Backspace (`BS` and `DEL`) and added `Ctrl-U` to clear interactive credential prompts, including hidden passwords and tokens.

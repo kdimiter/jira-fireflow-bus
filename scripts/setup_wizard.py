@@ -161,7 +161,12 @@ def build_config(template, jira_url, email, project, issue_type, ff_url, ff_user
         raise ValueError('Invalid project key')
     if not issue_type.isdecimal():
         raise ValueError('Use numeric Jira work type ID')
-    if not devices or any(not re.fullmatch(r'[A-Za-z0-9_.:/-]+', d) for d in devices):
+    if (not isinstance(devices, list) or not devices or len(devices) > 1000
+            or any(not isinstance(d, str) or not d or len(d) > 4096
+                   or d != d.strip()
+                   or any(ord(char) < 32 or 127 <= ord(char) <= 159
+                          for char in d)
+                   for d in devices)):
         raise ValueError('Device tree names are required')
     if pin and not re.fullmatch('[0-9a-fA-F]{64}', pin):
         raise ValueError('Certificate SHA256 must be 64 hex characters')
@@ -176,7 +181,8 @@ def build_config(template, jira_url, email, project, issue_type, ff_url, ff_user
     c = copy.deepcopy(template)
     c['jira'].update(base_url=origin(jira_url), email=email,
                      jql=f'project = {project} AND issuetype = {issue_type} AND status = "To Do" ORDER BY created ASC')
-    c['fireflow'].update(base_url=origin(ff_url), username=ff_user, devices=devices, allowed_devices=devices)
+    c['fireflow'].update(base_url=origin(ff_url), username=ff_user,
+                         devices=devices, allowed_devices=devices)
     c['fireflow'].pop('tls_certificate_sha256', None)
     c['fireflow'].pop('tls_pin_only', None)
     c['fireflow'].pop('ca_file', None)
@@ -224,6 +230,19 @@ def collect_fireflow_credentials():
     ff_user = ask('FireFlow username', 'jira_bus_api')
     password = prompt('Existing FireFlow password: ', secret=True)
     return ff_url, ff_user, password, pin, trust
+
+
+def discover_fireflow_devices(ff_url, ff_user, password, pin,
+                              trust_server_certificate, ca_file=None):
+    """Validate FireFlow credentials and load all permitted device tree names."""
+    from algosec_jira_bus.provision import list_fireflow_device_tree_names
+    transport = {'base_url': origin(ff_url)}
+    if trust_server_certificate:
+        transport['tls_certificate_sha256'] = pin.lower()
+        transport['tls_pin_only'] = True
+    elif ca_file:
+        transport['ca_file'] = ca_file
+    return list_fireflow_device_tree_names(transport, ff_user, password)
 
 
 def run_doctor(config):
@@ -385,12 +404,15 @@ def main():
     fields = {'structured': choose_field(available, 'Мережеві доступи AlgoSec', 'object')}
     for k, name in [('id', 'FireFlow Request ID'), ('status', 'FireFlow Status'), ('owner', 'FireFlow Owner')]:
         fields[k] = choose_field(available, name, 'string')
-    ff_url, ff_user, password, pin, trust_server_certificate = collect_fireflow_credentials()
-    devices = [v.strip() for v in ask('Device tree names (comma-separated)').split(',') if v.strip()]
-    template = json.loads(read_regular_text(
-        args.source / 'examples/jira-sync-basic-structured.json'))
     existing_ca_file = (existing.get('fireflow', {}).get('ca_file')
                         if isinstance(existing.get('fireflow'), dict) else None)
+    ff_url, ff_user, password, pin, trust_server_certificate = collect_fireflow_credentials()
+    devices = discover_fireflow_devices(
+        ff_url, ff_user, password, pin, trust_server_certificate,
+        existing_ca_file)
+    print('FireFlow-supported device tree names discovered:', len(devices))
+    template = json.loads(read_regular_text(
+        args.source / 'examples/jira-sync-basic-structured.json'))
     settings = build_config(
         template, url, email, project, worktype, ff_url, ff_user, devices, pin,
         fields, trust_server_certificate=trust_server_certificate,

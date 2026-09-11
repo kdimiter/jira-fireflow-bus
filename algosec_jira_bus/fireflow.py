@@ -79,7 +79,8 @@ def _custom_fields(value):
         raw = _mapping(raw, ('name', 'values'), label='custom field')
         fields.append({'name': _text(raw['name'], 'field name'),
                        'values': [_text(item, 'field value')
-                                  for item in _list(raw['values'], 'field values')]})
+                                  for item in _list(raw['values'], 'field values',
+                                                    maximum=1000)]})
     return fields
 
 

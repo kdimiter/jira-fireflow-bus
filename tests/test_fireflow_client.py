@@ -80,6 +80,13 @@ class Schema(unittest.TestCase):
         with self.assertRaises(ValueError):
             TrafficRequest.model_validate(traffic_request(101))
 
+    def test_large_discovered_device_lists_do_not_share_the_traffic_line_limit(self):
+        TrafficRequest.model_validate(traffic_request(
+            devices=tuple('fw-%03d' % number for number in range(101))))
+        with self.assertRaises(ValueError):
+            TrafficRequest.model_validate(traffic_request(
+                devices=tuple('fw-%04d' % number for number in range(1001))))
+
     def test_extra_keys_and_workflow_fields_are_rejected(self):
         extra = traffic_request()
         extra['unexpected'] = True
