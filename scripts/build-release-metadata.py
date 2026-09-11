@@ -299,7 +299,8 @@ def _verify_docker_installer(root, path, revision, image_digest):
     upgrader_name = 'upgrade-config.py'
     bus_conf_name = 'bus_conf'
     bus_update_name = 'bus_update'
-    prepare_names = {'prepare-fireflow.sh', 'prepare-jira.sh'}
+    prepare_names = {'prepare-fireflow.sh', 'prepare-jira.sh',
+                     'create-jira-space.sh'}
     files, captured = _self_extractor_files(
         path, DOCKER_INSTALLER_MARKER, 'build-docker-installer.py',
         {'MANIFEST.json', checksum_name, 'install-docker.sh', stager_name,

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add an idempotent `create-jira-space.sh` helper for validating, creating, and reusing a
+  company-managed Jira Space before the Forge app and remaining Jira integration objects are
+  prepared.
+
 ## 0.3.0
 
 - Add opt-in Jira-to-FireFlow synchronization for new internal Jira comments and explicitly mapped Jira workflow transitions.

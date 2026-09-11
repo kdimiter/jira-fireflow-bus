@@ -17,7 +17,7 @@ STAGER_NAME = 'stage-config.py'
 UPGRADER_NAME = 'upgrade-config.py'
 BUS_CONF_NAME = 'bus_conf'
 BUS_UPDATE_NAME = 'bus_update'
-PREPARE_NAMES = ('prepare-fireflow.sh', 'prepare-jira.sh')
+PREPARE_NAMES = ('prepare-fireflow.sh', 'prepare-jira.sh', 'create-jira-space.sh')
 HOST_SETUP = r'''if [ "${1:-}" != "--help" ] && [ "${1:-}" != "--extract" ]; then
     [ "$(uname -s)" = Linux ] || { echo 'Linux host required.' >&2; exit 1; }
     [ "$(id -u)" -eq 0 ] || { echo 'Run the installer with sudo.' >&2; exit 1; }

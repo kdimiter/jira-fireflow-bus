@@ -48,7 +48,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         (self.root / 'packaging/docker/bus_update').write_bytes(
             (ROOT / 'packaging/docker/bus_update').read_bytes())
         (self.root / 'scripts').mkdir()
-        for name in ('prepare-fireflow.sh', 'prepare-jira.sh'):
+        for name in ('prepare-fireflow.sh', 'prepare-jira.sh',
+                     'create-jira-space.sh'):
             (self.root / 'scripts' / name).write_bytes(
                 (ROOT / 'scripts' / name).read_bytes())
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)

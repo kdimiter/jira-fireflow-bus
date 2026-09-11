@@ -17,9 +17,11 @@ BUS_UPDATE_SOURCE="$HERE/bus_update"
 CONFIG_UPGRADER="$HERE/upgrade-config.py"
 FIREFLOW_PREPARE_SOURCE="$HERE/prepare-fireflow.sh"
 JIRA_PREPARE_SOURCE="$HERE/prepare-jira.sh"
+JIRA_SPACE_SOURCE="$HERE/create-jira-space.sh"
 if [ ! -f "$FIREFLOW_PREPARE_SOURCE" ] && [ -f "$HERE/../../scripts/prepare-fireflow.sh" ]; then
     FIREFLOW_PREPARE_SOURCE="$HERE/../../scripts/prepare-fireflow.sh"
     JIRA_PREPARE_SOURCE="$HERE/../../scripts/prepare-jira.sh"
+    JIRA_SPACE_SOURCE="$HERE/../../scripts/create-jira-space.sh"
 fi
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -47,7 +49,7 @@ for HELPER in "$BUS_UPDATE_SOURCE" "$CONFIG_UPGRADER"; do
     [ -f "$HELPER" ] && [ ! -L "$HELPER" ] \
         || { echo "Verified upgrade helper is missing: $HELPER" >&2; exit 1; }
 done
-for HELPER in "$FIREFLOW_PREPARE_SOURCE" "$JIRA_PREPARE_SOURCE"; do
+for HELPER in "$FIREFLOW_PREPARE_SOURCE" "$JIRA_PREPARE_SOURCE" "$JIRA_SPACE_SOURCE"; do
     [ -f "$HELPER" ] && [ ! -L "$HELPER" ] \
         || { echo "Verified preparation helper is missing: $HELPER" >&2; exit 1; }
 done
@@ -185,11 +187,11 @@ PY
 }
 install_helpers() {
     python3 - "$BUS_CONF_SOURCE" "$BUS_UPDATE_SOURCE" "$FIREFLOW_PREPARE_SOURCE" \
-        "$JIRA_PREPARE_SOURCE" "$DATA" <<'PY'
+        "$JIRA_PREPARE_SOURCE" "$JIRA_SPACE_SOURCE" "$DATA" <<'PY'
 import os, pathlib, stat, sys, tempfile
 
-sources = list(map(pathlib.Path, sys.argv[1:5]))
-data = pathlib.Path(sys.argv[5])
+sources = list(map(pathlib.Path, sys.argv[1:6]))
+data = pathlib.Path(sys.argv[6])
 
 def atomic_write(destination, payload, mode):
     destination = pathlib.Path(destination)
@@ -217,7 +219,8 @@ def atomic_write(destination, payload, mode):
 for source, destination in zip(
         sources, ('/usr/local/sbin/bus_conf', '/usr/local/sbin/bus_update',
                   '/usr/local/sbin/prepare-fireflow.sh',
-                  '/usr/local/sbin/prepare-jira.sh')):
+                  '/usr/local/sbin/prepare-jira.sh',
+                  '/usr/local/sbin/create-jira-space.sh')):
     source_fd = os.open(source, os.O_RDONLY | getattr(os, 'O_CLOEXEC', 0) |
                         getattr(os, 'O_NOFOLLOW', 0))
     try:
@@ -355,7 +358,7 @@ IMAGE_PLATFORM=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMA
 DATA=$(validate_data_dir "$DATA" initialize)
 if [ "$PREPARE_ONLY" -eq 1 ]; then
     install_helpers
-    echo 'Preparation commands installed: prepare-fireflow.sh and prepare-jira.sh'
+    echo 'Preparation commands installed: prepare-fireflow.sh, create-jira-space.sh and prepare-jira.sh'
     echo 'After preparing both systems, rerun the installer without --prepare-only.'
     exit 0
 fi
@@ -584,5 +587,5 @@ docker run -d --name algosec-jira-bus --label org.algosec.jira-bus.managed=helpe
 install_helpers
 echo 'Container started. Check: docker logs --tail 100 algosec-jira-bus'
 echo 'Reconfigure later: sudo bus_conf'
-echo 'Prepare remote systems: prepare-fireflow.sh and prepare-jira.sh'
+echo 'Prepare remote systems: prepare-fireflow.sh, create-jira-space.sh and prepare-jira.sh'
 echo "Persistent configuration and state: $DATA"

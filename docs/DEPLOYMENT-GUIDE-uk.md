@@ -251,7 +251,9 @@ sudo bus_update ./algosec-jira-bus-VERSION-docker-amd64.run \
 ```sh
 sudo sh algosec-jira-bus-0.3.0-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
-sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --project-key ALGO --apply
+sudo create-jira-space.sh --base-url https://TENANT.atlassian.net --space-key ALGO --space-name "AlgoSec" --apply
+# Після встановлення repository Forge app:
+sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --space-key ALGO --space-name "AlgoSec" --apply
 sudo sh algosec-jira-bus-0.3.0-docker-amd64.run
 ```
 
@@ -287,8 +289,14 @@ sudo prepare-fireflow.sh --base-url https://ASMS-HOST --trust-server-certificate
 позначають TLS, DNS/мережу, timeout, HTTP 401/403 або неочікувану відповідь API.
 
 Helpers виконують реалізацію всередині готового image і не залежать від host Python.
-Перед `prepare-jira.sh` встановіть repository Forge app. Jira helper створює/знаходить
-company-managed project, Network Access, три result fields та окремі screen schemes.
+`create-jira-space.sh` окремо перевіряє доступність ключа й назви та створює
+**company-managed** Jira Space з автентифікованим адміністратором як Lead. Команда
+ідемпотентна: повторний запуск використовує той самий Space, а конфлікт ключа, іншу назву чи
+team-managed Space відхиляє. Без `--apply` виконується лише read-only перевірка. Скрипт запитує
+Jira administrator email та API token у терміналі; token показується зірочками. Після створення
+Space встановіть repository Forge app, тоді запустіть `prepare-jira.sh`: він створює/знаходить
+Network Access, три result fields та окремі screen schemes. Обидва Jira helpers приймають
+`--space-key`/`--space-name`; старі назви `--project-key`/`--project-name` також підтримуються.
 
 Опція **Trust server certificate** за замовчуванням вимкнена. У цьому режимі діє повна TLS-
 перевірка: довірений ланцюжок CA та відповідність hostname або IP сертифікату. Увімкніть опцію
