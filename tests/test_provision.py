@@ -1,6 +1,7 @@
 import unittest
 
-from algosec_jira_bus.provision import ProvisionError, create_asms_user
+from algosec_jira_bus.provision import (ProvisionError, create_asms_user,
+                                        list_fireflow_device_tree_names)
 
 
 class FireFlowProvisionTests(unittest.TestCase):
@@ -61,6 +62,90 @@ class FireFlowProvisionTests(unittest.TestCase):
         with self.assertRaises(ProvisionError):
             self.call(lambda *_a, **_k:
                       {'status': True, 'SessionID': 'bad; injected=value'})
+
+    def test_device_tree_names_come_from_fireflow_authenticated_allowed_devices(self):
+        calls = []
+        def request(config, path, **kwargs):
+            calls.append((path, kwargs))
+            if path == '/FireFlow/api/authentication/authenticate':
+                return {
+                    'status': 'Success', 'messages': [{'code': 'success'}],
+                    'data': {
+                        'sessionId': 'fireflow-session',
+                        'phpSessionId':
+                            'PHPSESSID=php-session; path=/; secure; HttpOnly',
+                    },
+                }
+            if path == '/afa/api/v1/allowedDevices':
+                return [
+                    {'treeName': 'parent_fw_b', 'displayName': 'FW B'},
+                    {'treeName': 'fw_a', 'displayName': 'FW A'},
+                    {'treeName': 'fw_a', 'displayName': 'FW A duplicate'},
+                ]
+            self.fail(path)
+
+        names = list_fireflow_device_tree_names(
+            {'base_url': 'https://asms.example.test'}, 'jira_bus_api',
+            'service-secret', request=request)
+
+        self.assertEqual(names, ['fw_a', 'parent_fw_b'])
+        self.assertEqual(calls[0][0],
+                         '/FireFlow/api/authentication/authenticate')
+        self.assertEqual(calls[0][1]['body'], {
+            'username': 'jira_bus_api', 'password': 'service-secret'})
+        self.assertEqual(calls[1], (
+            '/afa/api/v1/allowedDevices', {
+                'headers': {'Cookie': 'PHPSESSID=php-session'},
+                'query': {'domain': 0, 'includeBlueCoat': 'no',
+                          'onlyFireflowSupportedDevices': 'yes'},
+            }))
+
+    def test_device_discovery_accepts_current_bare_php_session_format(self):
+        calls = []
+        def request(config, path, **kwargs):
+            calls.append((path, kwargs))
+            if path == '/FireFlow/api/authentication/authenticate':
+                return {
+                    'status': 'Success', 'messages': [],
+                    'data': {'sessionId': 'fireflow-session',
+                             'phpSessionId': 'bare-php-session'},
+                }
+            return [{'treeName': 'fw_a'}]
+
+        self.assertEqual(list_fireflow_device_tree_names(
+            {'base_url': 'https://asms.example.test'}, 'user', 'password',
+            request=request), ['fw_a'])
+        self.assertEqual(calls[1][1]['headers'], {
+            'Cookie': 'PHPSESSID=bare-php-session'})
+
+    def test_device_discovery_stops_on_fireflow_authentication_failure(self):
+        calls = []
+        def request(config, path, **kwargs):
+            calls.append(path)
+            return {'status': 'Failure', 'messages': [
+                {'code': 'authentication.failure'}], 'data': None}
+
+        with self.assertRaisesRegex(
+                ProvisionError, 'first login|password') as caught:
+            list_fireflow_device_tree_names(
+                {'base_url': 'https://asms.example.test'}, 'jira_bus_api',
+                'service-secret', request=request)
+        self.assertEqual(calls, ['/FireFlow/api/authentication/authenticate'])
+        self.assertNotIn('service-secret', str(caught.exception))
+
+    def test_device_discovery_rejects_malformed_or_empty_lists(self):
+        auth = {
+            'status': 'Success', 'messages': [],
+            'data': {'sessionId': 'ff-session',
+                     'phpSessionId': 'PHPSESSID=php-session; path=/'},
+        }
+        for devices in ([], [{}], [{'treeName': 'bad\x7fname'}]):
+            with self.subTest(devices=devices):
+                replies = iter((auth, devices))
+                with self.assertRaises(ProvisionError):
+                    list_fireflow_device_tree_names(
+                        {'base_url': 'https://asms.example.test'}, 'user',
+                        'password', request=lambda *_a, **_kw: next(replies))
 
 
 class WizardProvisionTests(unittest.TestCase):
@@ -401,6 +486,8 @@ class ProvisionSuccessOutputTests(unittest.TestCase):
                 '--base-url', 'https://asms.example.test', '--apply']), 0)
         self.assertEqual(output.getvalue(),
             'ASMS administrator login verified.\n'
-            'Account created. Enter the same password later in bus_conf.\n')
+            'Account created with a temporary password. Do not rerun this helper.\n'
+            'Sign in once at the FireFlow web interface, replace the temporary '
+            'password, then enter the new password in bus_conf.\n')
         for private_value in values[:-1] + list(payload.values()):
             self.assertNotIn(private_value, output.getvalue())

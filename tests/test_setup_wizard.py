@@ -14,6 +14,19 @@ spec.loader.exec_module(wizard)
 
 
 class SetupWizardTests(unittest.TestCase):
+    def test_fireflow_devices_are_discovered_without_manual_entry(self):
+        discovered = ['parent_fw_a', 'fw_b']
+        with patch('algosec_jira_bus.provision.list_fireflow_device_tree_names',
+                   return_value=discovered) as query:
+            self.assertEqual(wizard.discover_fireflow_devices(
+                'https://asms.example.test', 'jira_bus_api', 'password',
+                'a' * 64, True), discovered)
+        query.assert_called_once_with({
+            'base_url': 'https://asms.example.test',
+            'tls_certificate_sha256': 'a' * 64,
+            'tls_pin_only': True,
+        }, 'jira_bus_api', 'password')
+
     def test_private_reader_rejects_symlink_hardlink_permissions_and_size(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
@@ -50,6 +63,17 @@ class SetupWizardTests(unittest.TestCase):
         self.assertFalse(c['apply'])
         self.assertIn('issuetype = 123', c['jira']['jql'])
         self.assertEqual(c['fireflow']['allowed_devices'], ['fw_demo'])
+
+    def test_api_device_tree_names_may_contain_display_safe_characters(self):
+        template = json.loads((ROOT / 'examples/jira-sync-basic-structured.json').read_text())
+        fields = dict(structured='customfield_900', id='customfield_901',
+                      status='customfield_902', owner='customfield_903')
+        devices = ['Management / Policy FW 1', 'Київ_FW']
+        config = wizard.build_config(
+            template, 'https://example.atlassian.net', 'api@example.com',
+            'DEMO', '123', 'https://asms.example.com', 'api', devices, '',
+            fields)
+        self.assertEqual(config['fireflow']['devices'], devices)
 
     def test_trust_server_certificate_enables_pin_only_tls(self):
         template = json.loads((ROOT / 'examples/jira-sync-basic-structured.json').read_text())

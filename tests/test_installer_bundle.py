@@ -268,7 +268,7 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
         self.helper = self.base / 'install-docker.sh'
         self.helper.write_text(
             '#!/bin/sh\nprintf "%s\\n" "$@" > "$DOCKER_INSTALLER_TEST_LOG"\n')
-        self.bundle = self.base / 'algosec-jira-bus-0.2.2-docker-amd64.run'
+        self.bundle = self.base / 'algosec-jira-bus-0.2.3-docker-amd64.run'
         docker_builder.build(self.image, self.helper, self.bundle)
 
     def run_bundle(self, *args, env=None):
@@ -332,6 +332,42 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
         self.assertEqual(arguments[2], '--image-sha256')
         self.assertEqual(arguments[3], hashlib.sha256(self.image.read_bytes()).hexdigest())
         self.assertEqual(arguments[4:], ['--data-dir', '/srv/jira-bus'])
+
+
+class PreparationHelperImageTests(unittest.TestCase):
+    def test_new_release_image_wins_over_an_existing_old_container(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            binary = root / 'docker'
+            log = root / 'docker.log'
+            binary.write_text(
+                '#!/bin/sh\n'
+                'printf "%s\\n" "$*" >> "' + str(log) + '"\n'
+                'case "$1 $2" in\n'
+                '  "image inspect") exit 0;;\n'
+                '  "container inspect") exit 0;;\n'
+                '  "inspect --format") echo algosec-jira-bus:old;;\n'
+                'esac\n'
+                'exit 0\n')
+            binary.chmod(0o700)
+            for helper in ('prepare-fireflow.sh', 'prepare-jira.sh'):
+                with self.subTest(helper=helper):
+                    log.unlink(missing_ok=True)
+                    script = root / helper
+                    content = (ROOT / 'scripts' / helper).read_text()
+                    content = content.replace(
+                        'PATH=/usr/sbin:/usr/bin:/sbin:/bin',
+                        'PATH=' + str(root) + ':/usr/sbin:/usr/bin:/sbin:/bin')
+                    script.write_text(content)
+                    result = subprocess.run(
+                        ['/bin/sh', str(script), '--help'], env=os.environ,
+                        capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    calls = log.read_text()
+                    self.assertIn('image inspect algosec-jira-bus:', calls)
+                    self.assertNotIn('inspect --format', calls)
+                    self.assertIn('run --rm', calls)
+                    self.assertNotIn('algosec-jira-bus:old', calls)
 
 class InstallerPreflightTests(unittest.TestCase):
     """Shell contract tests with a fake manager; these do not prove systemd deployment."""

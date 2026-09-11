@@ -74,9 +74,9 @@ def _validate_inputs(*values):
             raise ProvisionError('Account inputs must be nonempty strings without control characters')
 
 
-def _validate_session(session):
+def _validate_session(session, label='ASMS administrator'):
     if not isinstance(session, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,512}', session):
-        raise ProvisionError('ASMS administrator login did not return a valid session')
+        raise ProvisionError(label + ' login did not return a valid session')
     return session
 
 
@@ -95,6 +95,78 @@ def authenticate_asms(transport, admin_username, admin_password, request=None):
     if not isinstance(auth, dict) or auth.get('status') is not True:
         raise ProvisionError('ASMS administrator login did not return a valid session')
     return _validate_session(auth.get('SessionID'))
+
+
+def _fireflow_sessions(transport, username, password, request=None):
+    """Authenticate against FireFlow and return validated FireFlow/PHP sessions."""
+    connection = _connection(transport)
+    _validate_inputs(username, password)
+    request = request or _request
+    try:
+        reply = request(
+            connection, '/FireFlow/api/authentication/authenticate', method='POST',
+            body={'username': username, 'password': password})
+    except Exception as error:
+        detail = _login_failure(error).replace('ASMS administrator login',
+                                               'FireFlow API login')
+        raise ProvisionError(detail) from None
+    data = reply.get('data') if isinstance(reply, dict) else None
+    if (not isinstance(reply, dict) or reply.get('status') != 'Success'
+            or not isinstance(data, dict)):
+        raise ProvisionError(
+            'FireFlow API authentication rejected; check the username and password. '
+            'For a newly created local user, complete its first browser login and '
+            'required password change, then retry.')
+    session = _validate_session(data.get('sessionId'), 'FireFlow API')
+    raw_php = data.get('phpSessionId')
+    match = (re.search(
+        r'(?:^|;\s*)PHPSESSID=([A-Za-z0-9_-]{1,512})(?:;|$)', raw_php)
+        if isinstance(raw_php, str) else None)
+    if match:
+        php_session = match.group(1)
+    elif isinstance(raw_php, str) and re.fullmatch(
+            r'[A-Za-z0-9_-]{1,512}', raw_php):
+        # Current ASMS releases return the bare value; older documentation
+        # shows a complete Set-Cookie-style string.
+        php_session = raw_php
+    else:
+        raise ProvisionError('FireFlow API login did not return a valid PHP session')
+    return session, php_session
+
+
+def list_fireflow_device_tree_names(transport, username, password, request=None):
+    """Return every permitted FireFlow-supported ASMS device tree name."""
+    connection = _connection(transport)
+    request = request or _request
+    _fireflow_session, php_session = _fireflow_sessions(
+        connection, username, password, request)
+    try:
+        reply = request(
+            connection, '/afa/api/v1/allowedDevices',
+            headers={'Cookie': 'PHPSESSID=' + php_session},
+            query={'domain': 0, 'includeBlueCoat': 'no',
+                   'onlyFireflowSupportedDevices': 'yes'})
+    except Exception as error:
+        if isinstance(error, urllib.error.HTTPError) and error.code in (401, 403):
+            detail = ('ASMS denied the FireFlow device list (HTTP 401/403); '
+                      'check the account device permissions.')
+        else:
+            detail = ('Could not read FireFlow-supported devices; check ASMS '
+                      'connectivity and the account permissions.')
+        raise ProvisionError(detail) from None
+    if not isinstance(reply, list) or not reply:
+        raise ProvisionError(
+            'ASMS returned no FireFlow-supported devices for this account')
+    names = []
+    for item in reply:
+        name = item.get('treeName') if isinstance(item, dict) else None
+        if (not isinstance(name, str) or not name or len(name) > 4096
+                or name != name.strip()
+                or any(ord(char) < 32 or 127 <= ord(char) <= 159
+                       for char in name)):
+            raise ProvisionError('ASMS returned an invalid device tree name')
+        names.append(name)
+    return sorted(set(names), key=lambda value: (value.casefold(), value))
 
 
 def create_asms_user(transport, admin_username, admin_password, username, password,
@@ -190,7 +262,9 @@ def main(argv=None):
         return 2
     create_asms_user(
         transport, admin, admin_password, username, password, email, _session=session)
-    print('Account created. Enter the same password later in bus_conf.')
+    print('Account created with a temporary password. Do not rerun this helper.')
+    print('Sign in once at the FireFlow web interface, replace the temporary '
+          'password, then enter the new password in bus_conf.')
     return 0
 
 
