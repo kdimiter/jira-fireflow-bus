@@ -10,6 +10,8 @@ status у Jira.
 
 Секрети, state, receipts і журнал не входять до Git-репозиторію або container image.
 Повні шляхи та права наведені в [інструкції](DEPLOYMENT-GUIDE-uk.md).
+Підтримувані шаблони, їхні стандартні workflow, межі REST API та порядок безпечного запуску
+Automatic Traffic Change наведені в [окремому довіднику](FIREFLOW-TEMPLATES-AND-WORKFLOWS-uk.md).
 
 Повторна відправка після невизначеного результату заборонена: durable operation ID,
 pre-execution receipt і reconcile використовуються для відновлення без дублювання заявки.

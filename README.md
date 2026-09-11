@@ -145,6 +145,9 @@ filesystem, all Linux capabilities dropped, and `no-new-privileges`.
 
 For native systemd installation and complete Jira/FireFlow preparation, see the
 [step-by-step deployment guide](docs/DEPLOYMENT-GUIDE-uk.md).
+For the supported FireFlow request templates, default workflows, REST boundaries, and the
+controlled rollout of Automatic Traffic Change, see the
+[FireFlow templates and workflows guide](docs/FIREFLOW-TEMPLATES-AND-WORKFLOWS-uk.md).
 
 ## Security model
 
