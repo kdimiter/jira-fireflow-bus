@@ -138,6 +138,18 @@ class Client(unittest.TestCase):
                                            'password': 'test-password'})
         self.assertEqual(templates[2]['headers'], {'Cookie': 'FireFlow_Session=session_1'})
 
+    def test_pin_only_tls_reaches_authentication_and_template_requests(self):
+        config = dict(self.config)
+        config.update(tls_pin_only=True, tls_certificate_sha256='a' * 64)
+        client = FireFlow(config, 'MANAGE', Audit(self.temp.name),
+                          request=self.api, resolver=lambda _ref: 'test-password')
+
+        client.templates()
+
+        for transport, _path, _kwargs in self.api.calls:
+            self.assertIs(transport['tls_pin_only'], True)
+            self.assertEqual(transport['tls_certificate_sha256'], 'a' * 64)
+
     def test_get_accepts_only_a_positive_integer_and_returns_a_stable_digest(self):
         reply = self.client.get(42)
         self.assertEqual(reply['change_request_id'], 42)

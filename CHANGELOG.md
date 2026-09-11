@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Preserve `tls_pin_only` in the runtime FireFlow transport so `doctor`, template reads, and traffic requests use the certificate trust mode selected during setup.
+
 ## 0.2.3
 
 - Automatically discover every permitted FireFlow-supported ASMS device tree name during setup instead of requiring a comma-separated list.
