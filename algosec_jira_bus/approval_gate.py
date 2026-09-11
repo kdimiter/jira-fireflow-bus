@@ -49,7 +49,7 @@ class ApprovalLedger:
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         _protected(self.directory.lstat(), directory=True)
 
-    def _fresh(self, jira, identifier, field, template, devices):
+    def _fresh(self, jira, identifier, field, template, devices, extra_fields=None):
         _protected(self.directory.lstat(), directory=True)
         identifier = issue_id(identifier)
         if not isinstance(field, str) or not re.fullmatch(r'customfield_[0-9]+', field):
@@ -62,7 +62,12 @@ class ApprovalLedger:
             origin = https_origin(origin)
         except ValueError:
             raise ApprovalError('Jira origin is required to bind approval')
-        issue = jira.read_issue(identifier, {field, 'status', 'summary'})
+        requested = {field, 'status', 'summary'}
+        if extra_fields is not None:
+            if not isinstance(extra_fields, (set, list, tuple)):
+                raise ApprovalError('Approval extra fields must be a collection')
+            requested.update(extra_fields)
+        issue = jira.read_issue(identifier, requested)
         if not isinstance(issue, dict) or issue.get('id') != identifier:
             raise ApprovalError('Jira returned a different immutable issue ID')
         fields = issue.get('fields') or {}
@@ -101,9 +106,10 @@ class ApprovalLedger:
                 os.unlink(temporary)
         return record
 
-    def verify(self, jira, identifier, field, template, devices):
+    def verify(self, jira, identifier, field, template, devices, extra_fields=None):
         """Return the fresh issue only if status, content and deployment still match."""
-        fresh, binding = self._fresh(jira, identifier, field, template, devices)
+        fresh, binding = self._fresh(
+            jira, identifier, field, template, devices, extra_fields=extra_fields)
         try:
             record = private_json(self.directory / (issue_id(identifier) + '.json'),
                                   os.getuid(), max_bytes=MAX_APPROVAL_BYTES)

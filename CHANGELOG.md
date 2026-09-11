@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Preserve Jira creator and reporter fields in the fresh approval-verified snapshot so
+  FireFlow Requestor attribution uses the actual Jira ticket creator.
+
 ## 0.3.1
 
 - Add an idempotent `create-jira-space.sh` helper for validating, creating, and reusing a

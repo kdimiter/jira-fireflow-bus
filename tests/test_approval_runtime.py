@@ -28,7 +28,12 @@ class Jira:
 
     def read_issue(self, identifier, fields):
         self.reads.append(identifier)
-        return copy.deepcopy(self.fresh)
+        snapshot = copy.deepcopy(self.fresh)
+        snapshot['fields'] = {
+            name: value for name, value in snapshot['fields'].items()
+            if name in fields
+        }
+        return snapshot
 
 
 class Fireflow:
@@ -108,6 +113,7 @@ class ApprovalRuntime(unittest.TestCase):
         self.assertEqual(request['traffic'][0]['destination']['items'], [{'address': '192.0.2.2'}])
         fields = {field['name']: field['values'] for field in request['fields']}
         self.assertEqual(fields['subject'], ['NET-1: Fresh summary'])
+        self.assertEqual(fields['Requestor'], ['creator@example.org'])
         self.assertEqual(self.jira.reads, ['1234', '1234'])
 
     def test_key_rename_keeps_operation_identity_even_without_state(self):

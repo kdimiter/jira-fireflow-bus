@@ -462,7 +462,8 @@ def run(settings, fireflow, state, jira=None, dry_run=True, log=print,
                 from .approval_gate import ApprovalLedger
                 try:
                     issue = ApprovalLedger(state.path.parent / 'approvals').verify(
-                        jira, issue.get('id'), mapping['structured']['field'], template, devices)
+                        jira, issue.get('id'), mapping['structured']['field'], template, devices,
+                        extra_fields=wanted)
                 except ValueError as error:
                     raise MappingError('Approval verification failed: %s' % error) from None
             key, request = build(issue, mapping, template, devices, jira_origin=settings['jira'].get('base_url'))
