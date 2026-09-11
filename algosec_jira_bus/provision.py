@@ -1,6 +1,5 @@
 """One-shot ASMS account provisioning, isolated from the recurring bus."""
 import getpass
-import json
 import re
 import socket
 import ssl
@@ -189,9 +188,8 @@ def main(argv=None):
     if _prompt('Type CREATE to grant ASMS Admin, FireFlow Admin and ALL_FIREWALLS Standard: ').strip() != 'CREATE':
         print('No changes made.')
         return 2
-    result = create_asms_user(
+    create_asms_user(
         transport, admin, admin_password, username, password, email, _session=session)
-    print(json.dumps(result, sort_keys=True))
     print('Account created. Enter the same password later in bus_conf.')
     return 0
 

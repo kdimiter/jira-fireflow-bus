@@ -380,3 +380,27 @@ class ProvisionNarrowTerminalTests(unittest.TestCase):
                         child.wait()
                         os.close(master)
                         os.close(slave)
+
+
+class ProvisionSuccessOutputTests(unittest.TestCase):
+    def test_success_never_prints_creation_return_payload_or_credentials(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from algosec_jira_bus import provision
+        values = ['admin-account', 'admin-secret', 'integration-user',
+                  'private-email@example.test', 'service-secret', 'service-secret', 'CREATE']
+        payload = {'username': values[2], 'email': values[3], 'password': values[4],
+                   'session': 'private-session', 'extra': 'private-return-payload'}
+        output = io.StringIO()
+        with patch.object(provision, '_prompt', side_effect=values), \
+             patch.object(provision, 'authenticate_asms', return_value='private-session'), \
+             patch.object(provision, 'create_asms_user', return_value=payload), \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(provision.main([
+                '--base-url', 'https://asms.example.test', '--apply']), 0)
+        self.assertEqual(output.getvalue(),
+            'ASMS administrator login verified.\n'
+            'Account created. Enter the same password later in bus_conf.\n')
+        for private_value in values[:-1] + list(payload.values()):
+            self.assertNotIn(private_value, output.getvalue())
