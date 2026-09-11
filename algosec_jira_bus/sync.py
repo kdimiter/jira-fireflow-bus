@@ -682,6 +682,17 @@ def validate_mirror(config):
         raise MappingError('result_fields maps id/status/owner to Jira custom text fields')
     if len(set(result.values())) != len(result):
         raise MappingError('Result field IDs must be distinct')
+    owner_assignees = config.get('owner_assignees', {})
+    if (not isinstance(owner_assignees, dict) or len(owner_assignees) > 100
+            or any(not isinstance(owner, str) or not owner.strip()
+                   or len(owner) > 256 or owner != owner.strip()
+                   or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in owner)
+                   or not isinstance(account_id, str)
+                   or not re.fullmatch(r'[A-Za-z0-9:._-]{1,256}', account_id)
+                   for owner, account_id in owner_assignees.items())
+            or len({owner.casefold() for owner in owner_assignees}) != len(owner_assignees)):
+        raise MappingError(
+            'mirror.owner_assignees must map unique FireFlow owner names to Jira accountIds')
     rules = config.get('outcome_rules', [])
     if not isinstance(rules, list):
         raise MappingError('mirror.outcome_rules must be a list')
@@ -712,7 +723,15 @@ def deliver_fields(key, payload, state, jira, failures):
 
 def result_fields(config, identifier, status, details):
     values = {'id': str(identifier), 'status': status, 'owner': details.get('Owner')}
-    return {field: values[name] for name, field in config.get('result_fields', {}).items()}
+    result = {field: values[name] for name, field in config.get('result_fields', {}).items()}
+    owner = details.get('Owner')
+    if isinstance(owner, str) and owner.strip():
+        account_id = next((account for name, account in
+                           config.get('owner_assignees', {}).items()
+                           if name.casefold() == owner.strip().casefold()), None)
+        if account_id:
+            result['assignee'] = {'accountId': account_id}
+    return result
 
 
 def workflow_transition(config, status, details):

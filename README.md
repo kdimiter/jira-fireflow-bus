@@ -19,9 +19,9 @@ runtime dependencies; the server does not clone the repository, build an image, 
 Python packages.
 
 ```sh
-# 1. Download these two assets from release v0.3.3, then verify and run:
-sha256sum -c algosec-jira-bus-0.3.3-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.3.3-docker-amd64.run
+# 1. Download these two assets from release v0.3.4, then verify and run:
+sha256sum -c algosec-jira-bus-0.3.4-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.3.4-docker-amd64.run
 
 # 2. Re-run the configuration wizard after deployment if needed:
 sudo bus_conf
@@ -32,6 +32,9 @@ sudo bus_conf --refresh-certificate
 # Enable or change Jira -> FireFlow comments and status synchronization:
 sudo bus_conf --jira-sync
 
+# Map FireFlow Owner names to Jira Assignee accounts:
+sudo bus_conf --owner-assignees
+
 # 3. Inspect the service:
 sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
@@ -40,8 +43,8 @@ sudo docker logs --tail 100 algosec-jira-bus
 Upgrade an existing installer-managed container without entering or rewriting its secrets:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.3.3-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.3.3-docker-amd64.run --upgrade
+sha256sum -c algosec-jira-bus-0.3.4-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-0.3.4-docker-amd64.run --upgrade
 
 # For every later release:
 sudo bus_update ./algosec-jira-bus-VERSION-docker-amd64.run \
@@ -55,7 +58,7 @@ container reports `READY`; failure restores the prior `bus.json` and restarts th
 For a new environment, install the ready image and the host preparation scripts first:
 
 ```sh
-sudo sh algosec-jira-bus-0.3.3-docker-amd64.run --prepare-only
+sudo sh algosec-jira-bus-0.3.4-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
 # Create a company-managed Jira Space, then install the repository Forge app once:
 sudo create-jira-space.sh --base-url https://TENANT.atlassian.net \
@@ -63,7 +66,7 @@ sudo create-jira-space.sh --base-url https://TENANT.atlassian.net \
 # Prepare its work type, fields and screens:
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net \
   --space-key ALGO --space-name "AlgoSec" --apply
-sudo sh algosec-jira-bus-0.3.3-docker-amd64.run
+sudo sh algosec-jira-bus-0.3.4-docker-amd64.run
 ```
 
 The `.sh` helpers run through the bundled Docker image and do not use host Python.
@@ -103,7 +106,13 @@ FireFlow History. If History proves the POST absent, `retry-jira-update` creates
 superseding operation without deleting the old receipt. The deployment guide gives the exact
 container commands.
 
-Download: [GitHub Release v0.3.3](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.3).
+`sudo bus_conf --owner-assignees` maps each FireFlow Owner name to one Jira account that is
+actually assignable in the configured project. The bus then updates the `FireFlow Owner` text
+field and Jira `Assignee` together. An unmapped FireFlow owner remains visible in the text field
+but does not replace the current Assignee. The menu stores immutable Jira `accountId` values and
+preserves the existing credentials and state.
+
+Download: [GitHub Release v0.3.4](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.4).
 The wizard validates both API connections and keeps `apply: false` unless the operator enters
 `START`.
 
@@ -121,7 +130,7 @@ package download is used:
 ```sh
 sudo install -d -m 0700 /root/jira-fireflow-deploy
 sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.3.3-docker-amd64.run \
+sudo sh algosec-jira-bus-0.3.4-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json
 ```
@@ -180,15 +189,15 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.3.3-linux.run
+  --output dist/algosec-jira-bus-0.3.4-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.3.3-linux.run \
-  dist/algosec-jira-bus-0.3.3-docker-amd64.tar.gz
+  dist/algosec-jira-bus-0.3.4-linux.run \
+  dist/algosec-jira-bus-0.3.4-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
-  --image dist/algosec-jira-bus-0.3.3-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.3.3-docker-amd64.run
+  --image dist/algosec-jira-bus-0.3.4-docker-amd64.tar.gz \
+  --output dist/algosec-jira-bus-0.3.4-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.3.3 --image algosec-jira-bus:0.3.3
+  --directory dist --version 0.3.4 --image algosec-jira-bus:0.3.4
 ```
 
 The bus submits and tracks a change request. Approval, planning, implementation, and policy
@@ -197,6 +206,8 @@ issues can initiate FireFlow requests after the configured approval gate.
 The Jira issue creator's email is sent as the FireFlow `Requestor`; FireFlow assigns `Owner`
 according to its workflow. Jira must expose `creator.emailAddress` to the dedicated API account,
 otherwise the issue is refused instead of being attributed to the wrong person.
+When owner mappings are configured, a FireFlow Owner change also updates Jira `Assignee` to the
+mapped assignable Jira account.
 
 Reverse synchronization uses the FireFlow RT REST compatibility endpoint because the public
 FireFlow API exposes request creation and reads but no internal-comment or status-transition

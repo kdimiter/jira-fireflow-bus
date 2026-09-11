@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4
+
+- Optionally map FireFlow Owner names to verified, project-assignable Jira accounts and update
+  the system Assignee together with the mirrored FireFlow result fields.
+- Add `sudo bus_conf --owner-assignees` so mappings can be managed without editing private JSON
+  or re-entering API credentials.
+
 ## 0.3.3
 
 - Request Jira creator and reporter fields during the installer connectivity doctor so

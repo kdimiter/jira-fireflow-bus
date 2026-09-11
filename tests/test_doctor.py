@@ -80,6 +80,12 @@ class Jira:
         if 'transitions' in self.fail: raise ValueError('nope')
         return self._transitions
 
+    def assignable_users(self, project, query=None, account_id=None, max_results=50):
+        if 'assignees' in self.fail:
+            raise ValueError('denied')
+        return ([{'accountId': account_id, 'displayName': 'Mapped User'}]
+                if account_id != 'missing' else [])
+
 
 class Fireflow:
     def __init__(self, templates=None, fail=False):
@@ -130,6 +136,12 @@ class Local(Base):
         results = doctor.local(settings(jira_to_fireflow={'enabled': 'yes'}), self.state)
         self.assertEqual(self.levels(results)['jira_to_fireflow.config'], doctor.FAIL)
 
+    def test_invalid_owner_mapping_is_a_local_failure(self):
+        configured = settings(mirror={
+            'owner_assignees': {'Alice': 'valid', 'alice': 'duplicate'}})
+        results = doctor.local(configured, self.state)
+        self.assertEqual(self.levels(results)['mirror.config'], doctor.FAIL)
+
     def test_a_device_that_is_used_but_not_allowlisted_is_a_failure(self):
         results = doctor.local(settings(fireflow={'allowed_devices': ['other']}), self.state)
         self.assertEqual(self.levels(results)['fireflow.allowed_devices'], doctor.FAIL)
@@ -166,6 +178,19 @@ class Local(Base):
 
 
 class JiraSide(Base):
+    def test_owner_mappings_are_checked_for_project_assignability(self):
+        configured = settings(
+            jira={'project_key': 'NET'},
+            mirror={'owner_assignees': {'Alice': 'account-1'}})
+        results = doctor.jira(configured, self.state, Jira())
+        self.assertEqual(self.levels(results)['jira.assignees'], doctor.OK)
+
+    def test_unassignable_owner_mapping_fails_doctor(self):
+        configured = settings(
+            jira={'project_key': 'NET'},
+            mirror={'owner_assignees': {'Alice': 'missing'}})
+        results = doctor.jira(configured, self.state, Jira())
+        self.assertEqual(self.levels(results)['jira.assignees'], doctor.FAIL)
     def test_a_field_id_that_does_not_exist_in_the_tenant_is_a_failure(self):
         client = Jira(fields=[{'id': 'customfield_1', 'name': 'Access action', 'custom': True}])
         results = doctor.jira(settings(), self.state, client)
