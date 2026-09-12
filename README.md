@@ -1,3 +1,7 @@
+[English](#english) | [Українська](#ukrainian)
+
+<a id="english"></a>
+
 # Jira–FireFlow Bus
 
 Self-contained, outbound-only integration that reads approved network-access requests from
@@ -19,9 +23,13 @@ runtime dependencies; the server does not clone the repository, build an image, 
 Python packages.
 
 ```sh
-# Download these two assets from release v0.3.8, verify, then open the complete dialog wizard:
-sha256sum -c algosec-jira-bus-0.3.8-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run --guided
+# Download the ready installer and checksum from the latest release:
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
+
+# Verify the download, then open the complete dialog wizard:
+sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 
 # Re-run only the bus configuration after deployment if needed:
 sudo bus_conf
@@ -47,12 +55,12 @@ container configuration managed by the existing wizard.
 Upgrade an existing installer-managed container without entering or rewriting its secrets:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.3.8-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run --upgrade
+sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-latest-docker-amd64.run --upgrade
 
 # For every later release:
-sudo bus_update ./algosec-jira-bus-VERSION-docker-amd64.run \
-  ./algosec-jira-bus-VERSION-docker-amd64.run.sha256
+sudo bus_update ./algosec-jira-bus-latest-docker-amd64.run \
+  ./algosec-jira-bus-latest-docker-amd64.run.sha256
 ```
 
 Upgrade mode reads the existing `secrets.json` only for the new-image doctor. It does not
@@ -62,7 +70,7 @@ container reports `READY`; failure restores the prior `bus.json` and restarts th
 For a new environment, install the ready image and the host preparation scripts first:
 
 ```sh
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run --prepare-only
+sudo sh algosec-jira-bus-latest-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
 # Create a company-managed Jira Space, then install the repository Forge app once:
 sudo create-jira-space.sh --base-url https://TENANT.atlassian.net \
@@ -71,7 +79,7 @@ sudo create-jira-space.sh --base-url https://TENANT.atlassian.net \
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net \
   --space-key ALGO --space-name "AlgoSec" \
   --work-type-name "AlgoSec Network Access" --apply
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run
+sudo sh algosec-jira-bus-latest-docker-amd64.run
 ```
 
 The `.sh` helpers run through the bundled Docker image and do not use host Python.
@@ -114,7 +122,7 @@ FireFlow History. If History proves the POST absent, `retry-jira-update` creates
 superseding operation without deleting the old receipt. The deployment guide gives the exact
 container commands.
 
-Download: [GitHub Release v0.3.8](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.8).
+Download: [latest GitHub Release](https://github.com/kdimiter/jira-fireflow-bus/releases/latest).
 The wizard validates both API connections and keeps `apply: false` unless the operator enters
 `START`.
 
@@ -132,7 +140,7 @@ package download is used:
 ```sh
 sudo install -d -m 0700 /root/jira-fireflow-deploy
 sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run \
+sudo sh algosec-jira-bus-latest-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json
 ```
@@ -200,6 +208,16 @@ python3 scripts/build-docker-installer.py \
   --output dist/algosec-jira-bus-0.3.8-docker-amd64.run
 python3 scripts/build-release-metadata.py \
   --directory dist --version 0.3.8 --image algosec-jira-bus:0.3.8
+
+# Publish these stable aliases in every release so README download URLs never change:
+cp dist/algosec-jira-bus-0.3.8-docker-amd64.run \
+  dist/algosec-jira-bus-latest-docker-amd64.run
+cp dist/algosec-jira-bus-0.3.8-linux.run \
+  dist/algosec-jira-bus-latest-linux.run
+(cd dist && shasum -a 256 algosec-jira-bus-latest-docker-amd64.run \
+  > algosec-jira-bus-latest-docker-amd64.run.sha256)
+(cd dist && shasum -a 256 algosec-jira-bus-latest-linux.run \
+  > algosec-jira-bus-latest-linux.run.sha256)
 ```
 
 The bus submits and tracks a change request. Approval, planning, implementation, and policy
@@ -216,3 +234,136 @@ them. Jira authors are preserved in comment text; FireFlow records the integrati
 the technical actor.
 
 Licensed under Apache-2.0. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
+---
+
+<a id="ukrainian"></a>
+
+# Шина Jira–FireFlow
+
+Самодостатня outbound-only інтеграція читає погоджені заявки на мережевий доступ із Jira
+Cloud через REST API, створює change request через API AlgoSec FireFlow і повертає перебіг
+обробки до Jira. Шина не відкриває вхідний HTTP-сервіс.
+
+```mermaid
+flowchart LR
+    J[Jira Cloud API] <-->|HTTPS 443| B[Шина Jira–FireFlow]
+    B <-->|HTTPS 443| F[AlgoSec FireFlow API]
+    B --> S[(Приватний стан)]
+    K[Захищений файл секретів] --> B
+```
+
+## Рекомендоване встановлення Docker
+
+[Останній реліз](https://github.com/kdimiter/jira-fireflow-bus/releases/latest)
+містить готовий installer для `linux/amd64` із Docker-образом і всіма runtime-залежностями.
+На сервері не потрібно клонувати Git-репозиторій, збирати образ або встановлювати Python-пакети.
+
+```sh
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
+
+sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
+```
+
+Режим `--guided` відкриває єдиний діалоговий майстер, який:
+
+- встановлює відсутні системні залежності й Docker;
+- встановлює Node.js 22 та Forge CLI під вибраним непривілейованим Linux-користувачем;
+- реєструє новий або повторно використовує наявний Forge App ID;
+- розгортає Forge-застосунок у вибраному Jira tenant;
+- створює або повторно використовує company-managed Jira Space;
+- створює вибраний work type, поля, screens та окрему field configuration;
+- запитує Jira URL, email, API token, FireFlow URL, API account і режим TLS;
+- запускає connectivity doctor і лише після успішної перевірки активує контейнер.
+
+Структуроване Forge-поле стає обов'язковим лише для вибраного мережевого work type.
+Поля FireFlow Request ID, Status і Owner залишаються видимими та необов'язковими. Інші work
+types у тому самому Space не блокуються цією перевіркою.
+
+## Керування після встановлення
+
+```sh
+# Перевірити контейнер і останні повідомлення:
+sudo docker ps --filter name=algosec-jira-bus
+sudo docker logs --tail 100 algosec-jira-bus
+
+# Повторно відкрити конфігурацію шини:
+sudo bus_conf
+
+# Прийняти новий сертифікат FireFlow після його заміни:
+sudo bus_conf --refresh-certificate
+
+# Налаштувати opt-in синхронізацію коментарів і статусів Jira -> FireFlow:
+sudo bus_conf --jira-sync
+```
+
+Майстер залишає `apply: false`, доки оператор явно не введе `START`. Після успішного запуску
+контейнер опитує Jira та FireFlow через HTTPS. Створення, погодження, планування й виконання
+змін залишаються під контролем workflow FireFlow.
+
+## Безпечне оновлення
+
+Для переходу на останній реліз без повторного введення або перезапису секретів:
+
+```sh
+sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-latest-docker-amd64.run --upgrade
+```
+
+Для наступних версій використовуйте встановлену команду:
+
+```sh
+sudo bus_update ./algosec-jira-bus-latest-docker-amd64.run \
+  ./algosec-jira-bus-latest-docker-amd64.run.sha256
+```
+
+Режим upgrade перевіряє новий image з чинними read-only secrets і не змінює `secrets.json`
+або state. Старий контейнер зупиняється лише після успішного doctor; якщо новий контейнер не
+стає `READY`, попередня конфігурація й контейнер відновлюються.
+
+## Окрема підготовка систем
+
+Якщо Jira та FireFlow потрібно підготувати окремими кроками:
+
+```sh
+sudo sh algosec-jira-bus-latest-docker-amd64.run --prepare-only
+
+sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
+
+sudo create-jira-space.sh --base-url https://TENANT.atlassian.net \
+  --space-key ALGO --space-name "AlgoSec" --apply
+
+sudo prepare-jira.sh --base-url https://TENANT.atlassian.net \
+  --space-key ALGO --space-name "AlgoSec" \
+  --work-type-name "AlgoSec Network Access" --apply
+
+sudo sh algosec-jira-bus-latest-docker-amd64.run
+```
+
+Ці `.sh`-команди використовують вбудований Docker-образ і не залежать від Python на host.
+`prepare-fireflow.sh` працює через HTTPS API, тому SSH-доступ до AlgoSec appliance не потрібний.
+`prepare-jira.sh` приймає власні назви Space і work type та безпечно повторно використовує
+керовані ним об'єкти.
+
+## TLS і зберігання секретів
+
+За замовчуванням шина перевіряє CA chain та hostname/IP сертифіката. **Trust server
+certificate** слід увімкати лише для приватного/self-signed сертифіката або підключення за IP,
+яке не проходить звичайну перевірку. У цьому режимі шина закріплює точний SHA-256 fingerprint;
+інший сертифікат буде відхилено. Після планової заміни сертифіката виконайте
+`sudo bus_conf --refresh-certificate`.
+
+Секрети зберігаються лише на Linux host у
+`/opt/algosec-jira-docker/config/secrets.json` з правами `0600` і UID/GID `10001`. Стан
+зберігається в `/opt/algosec-jira-docker/state`. Контейнер працює як UID `10001`, має read-only
+root filesystem, скинуті Linux capabilities та `no-new-privileges`.
+
+Повна покрокова підготовка Jira, Forge, FireFlow та Linux наведена в
+[українській інструкції](docs/DEPLOYMENT-GUIDE-uk.md). Native systemd installer
+`algosec-jira-bus-latest-linux.run` також доступний у релізі, але Docker installer є основним
+варіантом для нового розгортання.
+
+Ліцензія Apache-2.0. Інструкції для приватного повідомлення про вразливості наведені в
+[SECURITY.md](SECURITY.md).
