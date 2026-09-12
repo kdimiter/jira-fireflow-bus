@@ -248,6 +248,43 @@ def request_json(config, path, headers=None, method='GET', body=None, query=None
     return _request(config, path, fields, method, payload, query, timeout, _decode)
 
 
+def _decode_json_string(response):
+    """Decode a JSON string, tolerating Jira's unquoted scalar response.
+
+    Jira's project-name validation endpoint is documented as returning an
+    ``application/json`` string but some tenants return the same value without
+    JSON quotes.  Keep this compatibility decoder limited to a bounded,
+    printable scalar so general JSON callers remain strict.
+    """
+    data = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(data) > MAX_RESPONSE_BYTES:
+        raise ValueError('HTTP response limit exceeded')
+    content_type = str(response.headers.get('Content-Type') or '')
+    media_type = content_type.split(';', 1)[0].strip().casefold()
+    if media_type != 'application/json' and not media_type.endswith('+json'):
+        raise ValueError('Expected JSON response content type')
+    try:
+        text = data.decode('utf-8')
+    except UnicodeDecodeError:
+        raise ValueError('Invalid UTF-8 JSON string response') from None
+    try:
+        value = json.loads(text)
+    except (json.JSONDecodeError, RecursionError):
+        value = text
+    if (not isinstance(value, str) or not value or len(value) > 4096
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value)):
+        raise ValueError('Invalid JSON string response')
+    return value
+
+
+def request_json_string(config, path, headers=None, query=None, timeout=10):
+    """Read one bounded printable string from a JSON scalar GET endpoint."""
+    fields = _headers(headers)
+    fields['Accept'] = 'application/json'
+    return _request(config, path, fields, 'GET', None, query, timeout,
+                    _decode_json_string)
+
+
 def _decode_text(response):
     data = response.read(MAX_RESPONSE_BYTES + 1)
     if len(data) > MAX_RESPONSE_BYTES:

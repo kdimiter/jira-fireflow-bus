@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6
+
+- Accept Jira Cloud project-name validation responses returned as either a documented JSON
+  string or an unquoted plain-text scalar, while keeping all other Jira JSON decoding strict.
+- Report malformed Jira provisioning responses as a concise setup error instead of a Python
+  traceback.
+
 ## 0.3.5
 
 - Create the FireFlow request without a `Requestor` field when Jira hides or omits the
