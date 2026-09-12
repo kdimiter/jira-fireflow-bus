@@ -8,8 +8,13 @@
   Linux server no longer needs a repository checkout or a Mac deployment workstation.
 - Preserve an existing registered Forge App ID during code refresh and refuse replacement
   with another App ID, preventing duplicate Jira fields during reruns.
+- Scope the Forge requirement through the selected work type's field configuration, allowing
+  other native Jira work types in the same Space without a hidden Forge validation failure.
 - Install Node.js 22 through a per-user nvm directory and run Forge without root privileges;
   setup tokens are masked, held only for the deployment stage, and removed afterward.
+- Give every prepared company-managed Jira Space its own field configuration: the Forge
+  request field is visible and required, while FireFlow ID, status and owner stay visible
+  and optional without changing Jira's shared Default Field Configuration.
 
 ## 0.3.7
 

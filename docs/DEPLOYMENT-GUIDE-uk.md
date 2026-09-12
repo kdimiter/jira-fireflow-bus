@@ -304,7 +304,9 @@ Helpers виконують реалізацію всередині готово�
 team-managed Space відхиляє. Без `--apply` виконується лише read-only перевірка. Скрипт запитує
 Jira administrator email та API token у терміналі; token показується зірочками. Після створення
 Space встановіть repository Forge app, тоді запустіть `prepare-jira.sh`: він створює/знаходить
-вказаний standard work type, три result fields та окремі screen schemes. Якщо не передавати
+вказаний standard work type, три result fields, окремі screen schemes та окрему конфігурацію
+полів для цього Space. Forge-поле стає видимим і обов'язковим, а FireFlow Request ID, Status та
+Owner — видимими й необов'язковими. Спільна **Default Field Configuration** не змінюється. Якщо не передавати
 назви параметрами, helper послідовно запитає **Jira Space key**, **Jira Space name** і
 **Jira work type name**. Обидва Jira helpers приймають `--space-key`/`--space-name`; старі
 назви `--project-key`/`--project-name` також підтримуються. Для явного вибору унікального типу

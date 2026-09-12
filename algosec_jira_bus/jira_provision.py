@@ -18,6 +18,7 @@ TEXT_SEARCHER = 'com.atlassian.jira.plugin.system.customfieldtypes:textsearcher'
 RESULT_FIELDS = ('FireFlow Request ID', 'FireFlow Status', 'FireFlow Owner')
 MARKER = 'Managed by jira-fireflow-bus prepare-jira.sh'
 SPACE_TEMPLATE = 'com.atlassian.jira-core-project-templates:jira-core-project-management'
+PAGE_SIZE = 100
 
 
 def _identifier(value, label):
@@ -38,6 +39,241 @@ def _administrator(call):
     if permission.get('havePermission') is not True:
         raise JiraProvisionError('The API account does not have Jira Administrator permission')
     return account_id
+
+
+def _page_values(call, path, *, query=None):
+    """Read a Jira page collection completely and reject malformed pagination."""
+    values = []
+    start_at = 0
+    while True:
+        page_query = dict(query or {})
+        page_query.update(startAt=start_at, maxResults=PAGE_SIZE)
+        page = call(path, query=page_query)
+        batch = page.get('values') if isinstance(page, dict) else None
+        if not isinstance(batch, list):
+            raise JiraProvisionError('Jira returned an invalid paginated response')
+        page_start = page.get('startAt')
+        page_size = page.get('maxResults')
+        if (type(page_start) is not int or page_start != start_at
+                or type(page_size) is not int or page_size < 1):
+            raise JiraProvisionError('Jira returned invalid pagination metadata')
+        values.extend(batch)
+        if page.get('isLast') is True:
+            return values
+        total = page.get('total')
+        if type(total) is int and total >= 0 and len(values) >= total:
+            return values
+        if not batch:
+            raise JiraProvisionError('Jira pagination did not advance')
+        next_start = page_start + page_size
+        if next_start <= start_at:
+            raise JiraProvisionError('Jira pagination did not advance')
+        start_at = next_start
+
+
+def _unique_named(items, name, label):
+    matches = [item for item in items if item.get('name') == name]
+    if len(matches) > 1:
+        raise JiraProvisionError('Duplicate managed Jira ' + label + ' found')
+    return matches[0] if matches else None
+
+
+def _managed_named(items, name, label):
+    item = _unique_named(items, name, label)
+    if item is not None and item.get('description') != MARKER:
+        raise JiraProvisionError(
+            'Existing Jira ' + label + ' with the managed name is not managed by this installer')
+    return item
+
+
+def _field_api(call, path, **options):
+    """Give deprecated/capability failures one safe operator-facing boundary."""
+    try:
+        return call(path, **options)
+    except JiraProvisionError:
+        raise JiraProvisionError(
+            'Jira field-configuration API is unavailable or incompatible; '
+            'the project field scheme was not assigned') from None
+
+
+def _scheme_mapping(call, scheme_id):
+    items = _page_values(
+        call, '/rest/api/3/fieldconfigurationscheme/mapping',
+        query={'fieldConfigurationSchemeId': [scheme_id]})
+    mapping = {}
+    for item in items:
+        issue_type_id = item.get('issueTypeId') if isinstance(item, dict) else None
+        field_configuration_id = (item.get('fieldConfigurationId')
+                                  if isinstance(item, dict) else None)
+        if issue_type_id != 'default':
+            issue_type_id = _identifier(issue_type_id, 'field scheme work type ID')
+        field_configuration_id = _identifier(
+            field_configuration_id, 'mapped field configuration ID')
+        if issue_type_id in mapping:
+            raise JiraProvisionError('Jira field configuration scheme has duplicate mappings')
+        mapping[issue_type_id] = field_configuration_id
+    return mapping
+
+
+def _all_project_field_assignments(call):
+    projects = _page_values(call, '/rest/api/3/project/search')
+    project_ids = [_identifier(item.get('id') if isinstance(item, dict) else None,
+                               'project ID') for item in projects]
+    assignments = []
+    for offset in range(0, len(project_ids), PAGE_SIZE):
+        assignments.extend(_page_values(
+            call, '/rest/api/3/fieldconfigurationscheme/project',
+            query={'projectId': project_ids[offset:offset + PAGE_SIZE]}))
+    return assignments
+
+
+def _assigned_scheme(assignments, project_id):
+    matches = []
+    for assignment in assignments:
+        project_ids = assignment.get('projectIds') if isinstance(assignment, dict) else None
+        if not isinstance(project_ids, list):
+            raise JiraProvisionError('Jira returned invalid field scheme project assignments')
+        if project_id in [str(item) for item in project_ids]:
+            matches.append(assignment)
+    if len(matches) != 1:
+        raise JiraProvisionError('Jira project field scheme was not found uniquely')
+    scheme = matches[0].get('fieldConfigurationScheme')
+    return (_identifier(scheme.get('id'), 'field configuration scheme ID')
+            if isinstance(scheme, dict) else None)
+
+
+def _ensure_field_configuration(call, *, apply, project_key, project_id,
+                                issue_type_id, selected, created):
+    """Isolate required/hidden settings in one project field configuration.
+
+    Jira REST v3 contracts:
+    https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-field-configurations/
+    """
+    raw_call = call
+    call = lambda path, **options: _field_api(raw_call, path, **options)
+    configurations = _page_values(call, '/rest/api/3/fieldconfiguration')
+    defaults = [item for item in configurations if item.get('isDefault') is True]
+    if len(defaults) != 1:
+        raise JiraProvisionError('Jira default field configuration was not found uniquely')
+    default_id = _identifier(defaults[0].get('id'), 'default field configuration ID')
+
+    configuration_name = project_key + ' Jira-FireFlow Field Configuration'
+    configuration = _managed_named(
+        configurations, configuration_name, 'field configuration')
+    if configuration is None:
+        if not apply:
+            return {'ready': False,
+                    'planned': ['field-configuration:' + configuration_name]}
+        configuration = call('/rest/api/3/fieldconfiguration', method='POST', body={
+            'name': configuration_name, 'description': MARKER})
+        created.append('field-configuration:' + configuration_name)
+    if configuration.get('isDefault') is True:
+        raise JiraProvisionError('Managed field configuration cannot be the Jira default')
+    configuration_id = _identifier(
+        configuration.get('id'), 'field configuration ID')
+
+    scheme_name = project_key + ' Jira-FireFlow Field Configuration Scheme'
+    schemes = _page_values(call, '/rest/api/3/fieldconfigurationscheme')
+    scheme = _managed_named(schemes, scheme_name, 'field configuration scheme')
+
+    assignments = _all_project_field_assignments(call)
+    assigned_scheme_id = _assigned_scheme(assignments, project_id)
+    if scheme is not None:
+        candidate_scheme_id = _identifier(
+            scheme.get('id'), 'field configuration scheme ID')
+        foreign_projects = set()
+        for assignment in assignments:
+            assigned = assignment.get('fieldConfigurationScheme')
+            if (not isinstance(assigned, dict)
+                    or str(assigned.get('id')) != candidate_scheme_id):
+                continue
+            foreign_projects.update(
+                str(item) for item in assignment.get('projectIds', [])
+                if str(item) != project_id)
+        if foreign_projects:
+            raise JiraProvisionError(
+                'Managed Jira field configuration scheme is assigned to another Jira project')
+
+    if assigned_scheme_id is None:
+        inherited_mapping = {'default': default_id}
+    else:
+        inherited_mapping = _scheme_mapping(call, assigned_scheme_id)
+        if 'default' not in inherited_mapping:
+            raise JiraProvisionError('Current Jira project field scheme has no default mapping')
+
+    if scheme is None:
+        if not apply:
+            return {'ready': False,
+                    'planned': ['field-configuration-scheme:' + scheme_name]}
+        scheme = call('/rest/api/3/fieldconfigurationscheme', method='POST', body={
+            'name': scheme_name, 'description': MARKER})
+        created.append('field-configuration-scheme:' + scheme_name)
+    scheme_id = _identifier(scheme.get('id'), 'field configuration scheme ID')
+
+    all_mappings = _page_values(call, '/rest/api/3/fieldconfigurationscheme/mapping')
+    foreign_schemes = {
+        str(item.get('fieldConfigurationSchemeId')) for item in all_mappings
+        if (isinstance(item, dict)
+            and str(item.get('fieldConfigurationId')) == configuration_id
+            and str(item.get('fieldConfigurationSchemeId')) != scheme_id)
+    }
+    if foreign_schemes:
+        raise JiraProvisionError(
+            'Managed Jira field configuration is associated with another field scheme')
+
+    current_items = {item.get('id'): item for item in _page_values(
+        call, '/rest/api/3/fieldconfiguration/' + configuration_id + '/fields')}
+    desired = {
+        selected['structured']: True,
+        **{selected[name]: False for name in RESULT_FIELDS},
+    }
+    updates = []
+    for field_id, required in desired.items():
+        current = current_items.get(field_id, {})
+        if (current.get('isHidden') is not False
+                or current.get('isRequired') is not required):
+            updates.append({'id': field_id, 'isHidden': False,
+                            'isRequired': required})
+    if updates:
+        if not apply:
+            return {'ready': False,
+                    'planned': ['field-settings:' + configuration_name]}
+        call('/rest/api/3/fieldconfiguration/' + configuration_id + '/fields',
+             method='PUT', body={'fieldConfigurationItems': updates})
+        created.append('field-settings:' + configuration_name)
+
+    current_mapping = _scheme_mapping(call, scheme_id)
+    desired_mapping = dict(current_mapping if assigned_scheme_id == scheme_id
+                           else inherited_mapping)
+    desired_mapping[issue_type_id] = configuration_id
+    if any(current_mapping.get(work_type) != field_configuration
+           for work_type, field_configuration in desired_mapping.items()):
+        if not apply:
+            return {'ready': False, 'planned': ['field-mapping:' + scheme_name]}
+        call('/rest/api/3/fieldconfigurationscheme/' + scheme_id + '/mapping',
+             method='PUT', body={'mappings': [
+                 {'issueTypeId': work_type,
+                  'fieldConfigurationId': field_configuration}
+                 for work_type, field_configuration in desired_mapping.items()]})
+        created.append('field-mapping:' + scheme_name)
+
+    return {'ready': True, 'field_configuration_id': configuration_id,
+            'field_configuration_scheme_id': scheme_id,
+            'assignment_needed': assigned_scheme_id != scheme_id}
+
+
+def _assign_field_configuration_scheme(call, *, project_key, project_id,
+                                       field_configuration):
+    try:
+        call('/rest/api/3/fieldconfigurationscheme/project', method='PUT', body={
+            'fieldConfigurationSchemeId':
+                field_configuration['field_configuration_scheme_id'],
+            'projectId': project_id})
+    except JiraProvisionError:
+        raise JiraProvisionError(
+            'Jira field-configuration scheme assignment failed; verify the project '
+            'field scheme before rerunning the installer') from None
+    return 'field-scheme-project:' + project_key
 
 
 def ensure_space(call, *, apply, project_key='ALGO', project_name='AlgoSec',
@@ -167,6 +403,13 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
             return {'ready': False, 'planned': created + ['field:' + name], 'manual': []}
         selected[name] = field['id']
 
+    field_configuration = _ensure_field_configuration(
+        call, apply=apply, project_key=project_key, project_id=project_id,
+        issue_type_id=issue_type_id, selected=selected, created=created)
+    if not field_configuration['ready']:
+        return {'ready': False,
+                'planned': created + field_configuration['planned'], 'manual': []}
+
     screen_name = project_key + ' Jira-FireFlow Screen'
     screens = call('/rest/api/3/screens', query={'queryString': screen_name,
                                                  'maxResults': 100})
@@ -243,6 +486,15 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
             'issueTypeScreenSchemeId': type_screen_scheme_id,
             'projectId': project_id})
 
+    if field_configuration['assignment_needed']:
+        if not apply:
+            return {'ready': False,
+                    'planned': created + ['field-scheme-project:' + project_key],
+                    'manual': []}
+        created.append(_assign_field_configuration_scheme(
+            call, project_key=project_key, project_id=project_id,
+            field_configuration=field_configuration))
+
     # New projects already have a working default workflow. The bus maps to its standard
     # To Do / In Progress / Done states; creating another workflow would add no value.
     return {
@@ -254,7 +506,10 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
                    'owner': selected['FireFlow Owner']},
         'screen_id': screen_id, 'screen_scheme_id': screen_scheme_id,
         'issue_type_screen_scheme_id': type_screen_scheme_id, 'created': created,
-        'manual': ['Mark the Forge structured field Required if the tenant field-scheme API is unavailable'],
+        'field_configuration_id': field_configuration['field_configuration_id'],
+        'field_configuration_scheme_id':
+            field_configuration['field_configuration_scheme_id'],
+        'manual': [],
     }
 
 
