@@ -150,10 +150,10 @@ def installer_header(payload_digest):
 
 
 def _forge_archive():
-    root = ROOT / 'forge'
-    paths = sorted(path for path in root.rglob('*')
-                   if path.is_file() and 'node_modules' not in path.parts
-                   and not path.name.startswith('.algosec-'))
+    inventory = subprocess.run(
+        ['git', '-C', str(ROOT), 'ls-files', '-z', '--', 'forge'], check=True,
+        stdout=subprocess.PIPE).stdout.split(b'\0')
+    paths = [ROOT / name.decode('utf-8') for name in inventory if name]
     if not paths:
         raise ValueError('Forge source is missing')
     stream = io.BytesIO()

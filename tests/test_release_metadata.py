@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -49,9 +50,12 @@ class ReleaseMetadataTests(unittest.TestCase):
             (ROOT / 'packaging/docker/bus_update').read_bytes())
         (self.root / 'scripts').mkdir()
         for name in ('prepare-fireflow.sh', 'prepare-jira.sh',
-                     'create-jira-space.sh'):
+                     'create-jira-space.sh', 'guided-linux-setup.sh',
+                     'setup-forge.sh'):
             (self.root / 'scripts' / name).write_bytes(
                 (ROOT / 'scripts' / name).read_bytes())
+        shutil.copytree(ROOT / 'forge', self.root / 'forge',
+                        ignore=shutil.ignore_patterns('node_modules', '.algosec-*'))
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
         subprocess.run(
             ['git', '-C', str(self.root), 'config', 'user.email', 'release@example.invalid'],
