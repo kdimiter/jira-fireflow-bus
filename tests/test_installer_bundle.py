@@ -291,11 +291,27 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
             'prepare-fireflow.sh',
             'prepare-jira.sh',
             'create-jira-space.sh',
+            'guided-linux-setup.sh',
+            'setup-forge.sh',
+            'forge-app.tar.gz',
         })
         self.assertEqual((target / 'bus_conf').read_bytes(),
                          (ROOT / 'packaging/docker/bus_conf').read_bytes())
         self.assertEqual((target / 'bus_update').read_bytes(),
                          (ROOT / 'packaging/docker/bus_update').read_bytes())
+        self.assertEqual((target / 'guided-linux-setup.sh').read_bytes(),
+                         (ROOT / 'scripts/guided-linux-setup.sh').read_bytes())
+        with tarfile.open(target / 'forge-app.tar.gz', 'r:gz') as archive:
+            names = set(archive.getnames())
+        self.assertIn('forge/manifest.yml', names)
+        self.assertIn('forge/src/edit.tsx', names)
+        self.assertFalse(any('node_modules' in name for name in names))
+
+    def test_help_advertises_one_guided_linux_workflow(self):
+        result = self.run_bundle('--help')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--guided', result.stdout)
+        self.assertIn('Forge, Jira and the Docker bus', result.stdout)
 
     def test_one_file_installer_bootstraps_supported_linux_dependencies(self):
         header = self.bundle.read_bytes().split(docker_builder.MARKER, 1)[0].decode()

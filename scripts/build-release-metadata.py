@@ -5,6 +5,7 @@ import datetime
 import gzip
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -299,15 +300,20 @@ def _verify_docker_installer(root, path, revision, image_digest):
     upgrader_name = 'upgrade-config.py'
     bus_conf_name = 'bus_conf'
     bus_update_name = 'bus_update'
+    guided_setup_name = 'guided-linux-setup.sh'
+    forge_setup_name = 'setup-forge.sh'
+    forge_archive_name = 'forge-app.tar.gz'
     prepare_names = {'prepare-fireflow.sh', 'prepare-jira.sh',
                      'create-jira-space.sh'}
     files, captured = _self_extractor_files(
         path, DOCKER_INSTALLER_MARKER, 'build-docker-installer.py',
         {'MANIFEST.json', checksum_name, 'install-docker.sh', stager_name,
-         upgrader_name, bus_conf_name, bus_update_name, *prepare_names})
+         upgrader_name, bus_conf_name, bus_update_name, guided_setup_name,
+         forge_setup_name, forge_archive_name, *prepare_names})
     expected_names = {
         image_name, checksum_name, 'install-docker.sh', stager_name, upgrader_name,
-        bus_conf_name, bus_update_name,
+        bus_conf_name, bus_update_name, guided_setup_name, forge_setup_name,
+        forge_archive_name,
         *prepare_names,
         'MANIFEST.json'}
     if set(files) != expected_names or 'MANIFEST.json' not in captured:
@@ -351,6 +357,34 @@ def _verify_docker_installer(root, path, revision, image_digest):
         digest = _git_blob_digest(root, revision, 'scripts/' + name)
         if files[name]['sha256'] != digest:
             raise ValueError('Docker installer preparation helper does not match release Git tree')
+    for name in (guided_setup_name, forge_setup_name):
+        digest = _git_blob_digest(root, revision, 'scripts/' + name)
+        if files[name]['sha256'] != digest:
+            raise ValueError('Docker installer guided helper does not match release Git tree')
+
+    result = subprocess.run(
+        ['git', '-C', str(root), 'ls-tree', '-r', '--name-only', revision, 'forge'],
+        capture_output=True, text=True)
+    if result.returncode:
+        raise ValueError('cannot read Forge source inventory from release Git tree')
+    expected_forge = {name for name in result.stdout.splitlines() if name}
+    found_forge = {}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(captured[forge_archive_name]), mode='r:gz') as archive:
+            for member in archive:
+                name = _safe_archive_name(member)
+                if (name in found_forge or name not in expected_forge or
+                        member.type not in (tarfile.REGTYPE, tarfile.AREGTYPE)):
+                    raise ValueError('unsafe Forge source bundle inventory')
+                content = archive.extractfile(member).read()
+                found_forge[name] = hashlib.sha256(content).hexdigest()
+    except (tarfile.TarError, EOFError, OSError, KeyError):
+        raise ValueError('invalid Forge source bundle') from None
+    if set(found_forge) != expected_forge:
+        raise ValueError('Forge source bundle does not match release Git tree')
+    for name, digest in found_forge.items():
+        if digest != _git_blob_digest(root, revision, name):
+            raise ValueError('Forge source bundle differs from release Git tree')
 
 
 def _json_document(content, description):

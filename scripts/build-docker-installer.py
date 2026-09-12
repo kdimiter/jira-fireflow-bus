@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build one checksum-verified installer containing the ready linux/amd64 image."""
 import argparse
+import gzip
 import hashlib
 import io
 import json
@@ -18,6 +19,9 @@ UPGRADER_NAME = 'upgrade-config.py'
 BUS_CONF_NAME = 'bus_conf'
 BUS_UPDATE_NAME = 'bus_update'
 PREPARE_NAMES = ('prepare-fireflow.sh', 'prepare-jira.sh', 'create-jira-space.sh')
+GUIDED_SETUP_NAME = 'guided-linux-setup.sh'
+FORGE_SETUP_NAME = 'setup-forge.sh'
+FORGE_ARCHIVE_NAME = 'forge-app.tar.gz'
 HOST_SETUP = r'''if [ "${1:-}" != "--help" ] && [ "${1:-}" != "--extract" ]; then
     [ "$(uname -s)" = Linux ] || { echo 'Linux host required.' >&2; exit 1; }
     [ "$(id -u)" -eq 0 ] || { echo 'Run the installer with sudo.' >&2; exit 1; }
@@ -74,7 +78,7 @@ if hashlib.sha256(payload).hexdigest() != '__PAYLOAD_DIGEST__':
     raise SystemExit('Docker installer checksum mismatch; nothing extracted.')
 args = sys.argv[2:]
 if args == ['--help']:
-    print('Usage: sudo sh algosec-jira-bus-0.3.7-docker-amd64.run [--upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]\n       sh algosec-jira-bus-0.3.7-docker-amd64.run --extract NEW_DIRECTORY\nContains the ready linux/amd64 image; the target host does not build software.')
+    print('Usage: sudo sh algosec-jira-bus-0.3.7-docker-amd64.run [--guided | --upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]\n       sh algosec-jira-bus-0.3.7-docker-amd64.run --extract NEW_DIRECTORY\n--guided opens one Linux dialog workflow for Forge, Jira and the Docker bus.\nContains the ready linux/amd64 image; the target host does not build software.')
     raise SystemExit(0)
 extract_only = bool(args and args[0] == '--extract')
 if extract_only and len(args) != 2:
@@ -108,13 +112,19 @@ try:
     else:
         image = destination / '__IMAGE_NAME__'
         image_digest = manifest['files']['__IMAGE_NAME__']
-        interactive = all(option not in args for option in
+        guided = bool(args and args[0] == '--guided')
+        interactive = guided or all(option not in args for option in
                           ('--config-file', '--prepare-only', '--upgrade'))
         terminal = os.fdopen(os.dup(3), 'rb', buffering=0) if interactive else None
         try:
-            result = subprocess.run(['sh', str(destination / 'install-docker.sh'),
-                                     '--image-archive', str(image),
-                                     '--image-sha256', image_digest, *args], stdin=terminal)
+            if guided:
+                result = subprocess.run(
+                    ['sh', str(destination / '__GUIDED_SETUP_NAME__'), *args[1:]],
+                    stdin=terminal)
+            else:
+                result = subprocess.run(['sh', str(destination / 'install-docker.sh'),
+                                         '--image-archive', str(image),
+                                         '--image-sha256', image_digest, *args], stdin=terminal)
         finally:
             if terminal is not None:
                 terminal.close()
@@ -130,12 +140,38 @@ def installer_header(payload_digest):
         raise ValueError('payload digest must be lowercase SHA-256')
     extractor = EXTRACTOR.replace('__PAYLOAD_DIGEST__', payload_digest)
     extractor = extractor.replace('__IMAGE_NAME__', IMAGE_NAME)
+    extractor = extractor.replace('__GUIDED_SETUP_NAME__', GUIDED_SETUP_NAME)
     return (
         '#!/bin/sh\nset -eu\n' + HOST_SETUP +
         'command -v python3 >/dev/null 2>&1 || '
         '{ echo "Python 3 required to unpack installer" >&2; exit 1; }\n'
         'exec python3 - "$0" "$@" 3<&0 <<\'ALGOSEC_PYTHON\'\n' + extractor +
         '\nALGOSEC_PYTHON\n').encode()
+
+
+def _forge_archive():
+    root = ROOT / 'forge'
+    paths = sorted(path for path in root.rglob('*')
+                   if path.is_file() and 'node_modules' not in path.parts
+                   and not path.name.startswith('.algosec-'))
+    if not paths:
+        raise ValueError('Forge source is missing')
+    stream = io.BytesIO()
+    with gzip.GzipFile(fileobj=stream, mode='wb', filename='', mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed, mode='w') as archive:
+            for path in paths:
+                if path.is_symlink():
+                    raise ValueError('Forge source cannot contain symbolic links')
+                data = path.read_bytes()
+                relative = path.relative_to(ROOT).as_posix()
+                member = tarfile.TarInfo(relative)
+                member.size = len(data)
+                member.mode = 0o600
+                member.uid = member.gid = 0
+                member.uname = member.gname = ''
+                member.mtime = 0
+                archive.addfile(member, io.BytesIO(data))
+    return stream.getvalue()
 
 
 def build(image: Path, helper: Path, output: Path, revision=None):
@@ -148,6 +184,9 @@ def build(image: Path, helper: Path, output: Path, revision=None):
         UPGRADER_NAME: (ROOT / 'packaging/docker' / UPGRADER_NAME).read_bytes(),
         BUS_CONF_NAME: (ROOT / 'packaging/docker' / BUS_CONF_NAME).read_bytes(),
         BUS_UPDATE_NAME: (ROOT / 'packaging/docker' / BUS_UPDATE_NAME).read_bytes(),
+        GUIDED_SETUP_NAME: (ROOT / 'scripts' / GUIDED_SETUP_NAME).read_bytes(),
+        FORGE_SETUP_NAME: (ROOT / 'scripts' / FORGE_SETUP_NAME).read_bytes(),
+        FORGE_ARCHIVE_NAME: _forge_archive(),
     }
     for name in PREPARE_NAMES:
         files[name] = (ROOT / 'scripts' / name).read_bytes()
