@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blankRequest, duplicateRow, removeRow, validateRequest } from '../src/model';
+import { blankRequest, duplicateRow, readForgeFieldContext, removeRow, validateRequest } from '../src/model';
 
 function valid() {
   const value = blankRequest();
@@ -48,4 +48,18 @@ test('row limit prevents oversized requests', () => {
   const value = valid();
   value.trafficLines = Array.from({ length: 101 }, () => structuredClone(value.trafficLines[0]));
   assert.throws(() => validateRequest(value));
+});
+
+test('UI Kit field context enables blur submission in issue create', () => {
+  const existing = valid();
+  assert.deepEqual(readForgeFieldContext({
+    extensionContext: { fieldValue: existing, renderContext: 'issue-create' },
+  }), { fieldValue: existing, renderContext: 'issue-create' });
+});
+
+test('bridge field context remains supported for issue view', () => {
+  const existing = valid();
+  assert.deepEqual(readForgeFieldContext({
+    extension: { fieldValue: existing, renderContext: 'issue-view' },
+  }), { fieldValue: existing, renderContext: 'issue-view' });
 });

@@ -55,8 +55,10 @@ sudo docker logs --tail 100 algosec-jira-bus
 Docker and terminal-dialog prerequisites, then reads the compatible Forge apps already installed
 in the selected Jira site. The menu identifies each candidate by environment, Jira field ID and
 Forge App UUID, and also offers **Register and install a new Forge app**. Selecting an existing
-production app skips Node.js, Forge CLI, Forge credentials, deployment and installation. The
-wizard pins Jira preparation to that exact App ID. The create-new path installs Node.js 22 and
+production app offers either immediate reuse or deployment of the bundled Forge update to the
+same App ID. Reuse skips Node.js, Forge CLI, Forge credentials, deployment and installation;
+update uses `forge install --upgrade` and never registers a duplicate. The wizard pins Jira
+preparation to that exact App ID. The create-new path installs Node.js 22 and
 Forge CLI under the selected non-root operator, registers and installs the app, and then prepares
 a company-managed Jira Space with the chosen standard work type. That work type receives the Forge Basic network
 request field, the optional FireFlow Request ID, FireFlow Status and FireFlow Owner result
@@ -236,20 +238,20 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.3.10-linux.run
+  --output dist/algosec-jira-bus-0.3.11-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.3.10-linux.run \
-  dist/algosec-jira-bus-0.3.10-docker-amd64.tar.gz
+  dist/algosec-jira-bus-0.3.11-linux.run \
+  dist/algosec-jira-bus-0.3.11-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
-  --image dist/algosec-jira-bus-0.3.10-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.3.10-docker-amd64.run
+  --image dist/algosec-jira-bus-0.3.11-docker-amd64.tar.gz \
+  --output dist/algosec-jira-bus-0.3.11-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.3.10 --image algosec-jira-bus:0.3.10
+  --directory dist --version 0.3.11 --image algosec-jira-bus:0.3.11
 
 # Publish these stable aliases in every release so README download URLs never change:
-cp dist/algosec-jira-bus-0.3.10-docker-amd64.run \
+cp dist/algosec-jira-bus-0.3.11-docker-amd64.run \
   dist/algosec-jira-bus-latest-docker-amd64.run
-cp dist/algosec-jira-bus-0.3.10-linux.run \
+cp dist/algosec-jira-bus-0.3.11-linux.run \
   dist/algosec-jira-bus-latest-linux.run
 (cd dist && shasum -a 256 algosec-jira-bus-latest-docker-amd64.run \
   > algosec-jira-bus-latest-docker-amd64.run.sha256)
@@ -314,7 +316,9 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 - встановлює відсутні системні залежності й Docker;
 - читає із Jira перелік сумісних Forge-застосунків і показує їхнє середовище, field ID та App UUID;
 - дає вибрати встановлений production-застосунок або створити новий;
-- для встановленого production-застосунку пропускає Node.js, Forge CLI, Forge token, deploy та install;
+- для встановленого production-застосунку дає повторно використати його без змін або
+  розгорнути оновлення на той самий App ID через `forge install --upgrade`;
+- у режимі повторного використання пропускає Node.js, Forge CLI, Forge token, deploy та install;
 - лише для нового або ще не production-застосунку встановлює Node.js 22 і Forge CLI під
   вибраним непривілейованим Linux-користувачем та виконує deploy/install;
 - створює або повторно використовує company-managed Jira Space;

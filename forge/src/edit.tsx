@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Box, Button, Heading, Inline, Label, SectionMessage, Select, Stack, Text, TextArea, Textfield } from '@forge/react';
+import ForgeReconciler, { Box, Button, Heading, Inline, Label, SectionMessage, Select, Stack, Text, TextArea, Textfield, useProductContext } from '@forge/react';
 import { CustomFieldEdit } from '@forge/react/jira';
 import { view } from '@forge/bridge';
-import { Address, AddressKind, blankLine, blankRequest, duplicateRow, MAX_ROWS, removeRow, RequestValue, TrafficLine, validateRequest } from './model';
+import { Address, AddressKind, blankLine, blankRequest, duplicateRow, MAX_ROWS, readForgeFieldContext, removeRow, RequestValue, TrafficLine, validateRequest } from './model';
 
 const kinds = [{ label: 'IP-адреса', value: 'ip' }, { label: 'Hostname', value: 'hostname' },
   { label: 'Діапазон адрес', value: 'range' }, { label: 'Підмережа / маска', value: 'subnet' }];
@@ -52,18 +52,23 @@ function RowEditor({ row, index, change, duplicate, remove, canDelete, canAdd }:
   </Box>;
 }
 function Edit() {
+  const context = useProductContext();
   const [value, setValue] = useState<RequestValue | null>(null);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [renderContext, setRenderContext] = useState('issue-view');
   useEffect(() => {
-    view.getContext().then(context => {
-      const existing = context.extension?.fieldValue;
-      setRenderContext(context.extension?.renderContext ?? 'issue-view');
-      setValue(existing == null ? blankRequest() : validateRequest(existing));
-    }).catch(() => setLoadError('Не вдалося прочитати поле або його формат не підтримується. Оновіть сторінку чи зверніться до адміністратора; наявні дані не перезаписано.'));
-  }, []);
+    if (context) {
+      try {
+        const { fieldValue: existing, renderContext: currentRenderContext } = readForgeFieldContext(context);
+        setRenderContext(currentRenderContext);
+        setValue(existing == null ? blankRequest() : validateRequest(existing));
+      } catch {
+        setLoadError('Не вдалося прочитати поле або його формат не підтримується. Оновіть сторінку чи зверніться до адміністратора; наявні дані не перезаписано.');
+      }
+    }
+  }, [context]);
   if (loadError) return <SectionMessage appearance="error"><Text>{loadError}</Text></SectionMessage>;
   if (!value) return <Text>Завантаження доступів…</Text>;
   const submit = async () => {

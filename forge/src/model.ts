@@ -6,11 +6,27 @@ export type Service = { kind: 'port'; protocol: 'tcp' | 'udp'; port: number };
 export type TrafficLine = { source: Address; destination: Address; services: Service[] };
 export type RequestValue = { schemaVersion: 1; justification: string; changeType: 'Allow' | 'Drop';
   duration: { kind: 'permanent' }; trafficLines: TrafficLine[] };
+export type ForgeFieldContext = { fieldValue: unknown; renderContext: string };
 export const MAX_ROWS = 100;
 export const blankLine = (): TrafficLine => ({ source: { kind: 'ip', value: '' },
   destination: { kind: 'ip', value: '' }, services: [{ kind: 'port', protocol: 'tcp', port: 443 }] });
 export const blankRequest = (): RequestValue => ({ schemaVersion: 1, justification: '', changeType: 'Allow',
   duration: { kind: 'permanent' }, trafficLines: [blankLine()] });
+export function readForgeFieldContext(raw: unknown): ForgeFieldContext {
+  const context = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const uiKit = context.extensionContext;
+  const bridge = context.extension;
+  const extension = uiKit && typeof uiKit === 'object'
+    ? uiKit as Record<string, unknown>
+    : bridge && typeof bridge === 'object'
+      ? bridge as Record<string, unknown>
+      : {};
+  return {
+    fieldValue: extension.fieldValue,
+    renderContext: typeof extension.renderContext === 'string'
+      ? extension.renderContext : 'issue-view',
+  };
+}
 export function duplicateRow(value: RequestValue, index: number): RequestValue {
   if (value.trafficLines.length >= MAX_ROWS) return value;
   const rows = [...value.trafficLines];

@@ -39,7 +39,7 @@ Guided installer сам перевіряє, чи встановлений сум
 пропускається. Наведений нижче ручний спосіб потрібен лише без `--guided`:
 
 ```sh
-git clone --branch v0.3.10 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.11 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 cd forge
 npm ci --ignore-scripts
@@ -76,7 +76,7 @@ Forge app.
 На адміністративній робочій станції потрібні Node.js 22, npm, Forge CLI та акаунт із правами розгортання Forge і встановлення застосунку на потрібний Jira site. Runtime API-token шини для цього не використовується.
 
 ```sh
-git clone --branch v0.3.10 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.11 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 npm install --global @forge/cli
 sh scripts/setup-forge.sh
@@ -225,7 +225,9 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 Режим `--guided` показує термінальні діалогові вікна і проводить через усі етапи на
 Linux-сервері. Спочатку він читає із Jira сумісні Forge apps і показує меню: кожен
 встановлений app із середовищем, field ID та App UUID або створення нового. Вибір production
-app пропускає Node.js, Forge CLI, Forge token, deploy та install. Для нового app майстер
+app пропонує повторно використати його без змін або розгорнути оновлення на той самий App ID
+через `forge install --upgrade`. Повторне використання пропускає Node.js, Forge CLI, Forge
+token, deploy та install. Для нового app майстер
 встановлює Node.js 22 та Forge CLI під звичайним користувачем і виконує register/deploy/install.
 Після цього він виконує створення Jira Space і
 work type, повної форми Basic network request, трьох полів результату та окремих work type,

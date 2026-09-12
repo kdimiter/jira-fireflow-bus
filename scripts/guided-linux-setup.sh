@@ -195,8 +195,25 @@ case "$APP_CHOICE" in
             "$DISCOVERY/apps.tsv")
         APP_MODE=existing
         if [ "$CANDIDATE_ENV" = PRODUCTION ]; then
-            SKIP_FORGE=1
-            FORGE_SELECTION="$APP_UUID / reuse verified production installation"
+            FORGE_EXISTING_ACTION=$(whiptail --title 'Forge application' --menu \
+                'The production app is already installed. Reuse it unchanged, or deploy the bundled Forge update to this same App ID.' \
+                15 92 2 \
+                reuse 'Reuse the installed production app unchanged' \
+                upgrade 'Deploy the bundled Forge app update' \
+                3>&1 1>&2 2>&3) || cancelled
+            case "$FORGE_EXISTING_ACTION" in
+                reuse)
+                    SKIP_FORGE=1
+                    FORGE_SELECTION="$APP_UUID / reuse verified production installation"
+                    ;;
+                upgrade)
+                    APP_MODE=existing
+                    INSTALL_MODE=upgrade
+                    SKIP_FORGE=0
+                    FORGE_SELECTION="$APP_UUID / deploy bundled update to existing production app"
+                    ;;
+                *) echo 'Invalid Forge application action.' >&2; exit 1;;
+            esac
         else
             FORGE_SELECTION="$APP_UUID / deploy and install production"
         fi

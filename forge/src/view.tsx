@@ -1,10 +1,10 @@
 import React from 'react';
 import ForgeReconciler, { DynamicTable, SectionMessage, Stack, Text, useProductContext } from '@forge/react';
-import { validateRequest } from './model';
+import { readForgeFieldContext, validateRequest } from './model';
 function View() {
   const context = useProductContext();
   if (!context) return <Text>Завантаження доступів…</Text>;
-  const raw = context.extension?.fieldValue;
+  const raw = readForgeFieldContext(context).fieldValue;
   if (raw == null) return <Text>Доступи ще не додано.</Text>;
   try {
     const value = validateRequest(raw);

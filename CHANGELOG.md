@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.11
+
+- Read the Jira UI Kit custom-field context from both supported context shapes so the create
+  dialog enables blur submission and sends the completed structured value to Jira validation.
+- Let the guided installer either reuse an existing production Forge app unchanged or deploy
+  the bundled update to that same App ID with `forge install --upgrade`, without registering a
+  duplicate app.
+
 ## 0.3.10
 
 - Let the guided Linux installer discover compatible Forge apps already installed in the
