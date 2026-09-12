@@ -38,7 +38,7 @@ Jira work type. Також створіть text fields для FireFlow Request 
 виконується один раз на адміністративній workstation, а не всередині runtime container:
 
 ```sh
-git clone --branch v0.3.8 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.9 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 cd forge
 npm ci --ignore-scripts
@@ -46,9 +46,14 @@ cd ..
 sh scripts/setup-forge.sh
 ```
 
-Рекомендований `prepare-jira.sh` створює або знаходить **company-managed** project і додає
-потрібні об'єкти через Jira API. Якщо політика замовника вимагає ручного **team-managed**
-project, використайте візуальний додаток А після встановлення Forge app.
+Рекомендований `prepare-jira.sh` створює або знаходить **company-managed** Space, додає вибраний
+standard work type, потрібні поля й окремі work type, screen, field-configuration та workflow
+schemes через Jira API. Окрема work type scheme містить лише вибраний інтеграційний тип. Для
+нього helper створює Basic workflow `To Do → Plan → Approve → Implement → Validate → Match → Done` з
+альтернативними кінцевими статусами `Rejected` і `Cancelled`. `Review` не входить до Basic:
+цей етап використовується у FireFlow Multi-Approval і Parallel-Approval. Якщо політика замовника
+вимагає ручного **team-managed** project, використайте візуальний додаток А після встановлення
+Forge app.
 
 ### Ручне створення полів Jira
 
@@ -68,7 +73,7 @@ project, використайте візуальний додаток А піс�
 На адміністративній робочій станції потрібні Node.js 22, npm, Forge CLI та акаунт із правами розгортання Forge і встановлення застосунку на потрібний Jira site. Runtime API-token шини для цього не використовується.
 
 ```sh
-git clone --branch v0.3.8 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.9 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 npm install --global @forge/cli
 sh scripts/setup-forge.sh
@@ -194,17 +199,19 @@ daemon. Команди відповідають поточним офіційн�
 
 ### 2.2. Завантажте й запустіть один installer
 
-Відкрийте [GitHub Release v0.3.8](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.8)
-і завантажте два assets:
+Відкрийте [останній GitHub Release](https://github.com/kdimiter/jira-fireflow-bus/releases/latest)
+і завантажте два assets зі стабільними назвами:
 
-- `algosec-jira-bus-0.3.8-docker-amd64.run`
-- `algosec-jira-bus-0.3.8-docker-amd64.run.sha256`
+- `algosec-jira-bus-latest-docker-amd64.run`
+- `algosec-jira-bus-latest-docker-amd64.run.sha256`
 
 У каталозі із завантаженими файлами:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.3.8-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run --guided
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
+sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 ```
 
 ![Перевірка та запуск готового Docker installer із синтетичними адресами](screenshots/21-docker-installer.png)
@@ -212,7 +219,18 @@ sudo sh algosec-jira-bus-0.3.8-docker-amd64.run --guided
 Режим `--guided` показує термінальні діалогові вікна і проводить через усі етапи на
 Linux-сервері: системні залежності, Node.js 22 та Forge CLI під звичайним користувачем,
 реєстрацію нового або повторне використання наявного Forge App ID, створення Jira Space і
-work type, а потім конфігурацію Docker-шини. Mac і окремий checkout repository не потрібні.
+work type, повної форми Basic network request, трьох полів результату та окремих work type,
+screen, field-configuration і workflow schemes, а потім конфігурацію Docker-шини. Окрема work
+type scheme містить лише вибраний інтеграційний тип. Автоматичне призначення схем виконується
+лише для порожнього Space; якщо заявки вже існують і потрібна міграція, майстер зупиняється.
+Створений workflow:
+
+```text
+To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
+```
+
+`Rejected` і `Cancelled` є кінцевими альтернативами. `Review` не додається, тому що не є етапом
+Basic workflow. Mac і окремий checkout repository не потрібні.
 Якщо той самий App ID уже збережений у `~/algosec-jira-forge`, майстер використовує його
 повторно і не створює дубль поля. Для перенесення раніше зареєстрованого застосунку з іншої
 машини виберіть наявний App та введіть його `ari:cloud:ecosystem::app/...` із Atlassian
@@ -234,8 +252,8 @@ API email/token, ASMS URL та FireFlow API user/password. Після успіш
 і сусідній `.sha256`, потім виконайте:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.3.8-docker-amd64.run.sha256
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run --upgrade
+sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
+sudo sh algosec-jira-bus-latest-docker-amd64.run --upgrade
 ```
 
 Режим `--upgrade` не запускає wizard і не переписує `secrets.json` або state. Новий image
@@ -248,8 +266,8 @@ read-only mount і тимчасовим state ще до зупинки робо�
 Після першого такого оновлення доступна команда для наступних релізів:
 
 ```sh
-sudo bus_update ./algosec-jira-bus-VERSION-docker-amd64.run \
-  ./algosec-jira-bus-VERSION-docker-amd64.run.sha256
+sudo bus_update ./algosec-jira-bus-latest-docker-amd64.run \
+  ./algosec-jira-bus-latest-docker-amd64.run.sha256
 ```
 
 Вона перевіряє SHA-256 і запускає `--upgrade` із нового, уже перевіреного installer. Автоматичне
@@ -258,12 +276,12 @@ sudo bus_update ./algosec-jira-bus-VERSION-docker-amd64.run \
 Для нового середовища спочатку встановіть image та незалежні `.sh` helpers:
 
 ```sh
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run --prepare-only
+sudo sh algosec-jira-bus-latest-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
 sudo create-jira-space.sh --base-url https://TENANT.atlassian.net --space-key ALGO --space-name "AlgoSec" --apply
 # Після встановлення repository Forge app:
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --space-key ALGO --space-name "AlgoSec" --work-type-name "AlgoSec Network Access" --apply
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run
+sudo sh algosec-jira-bus-latest-docker-amd64.run
 ```
 
 FireFlow API автентифікує інтеграцію за **username/password** і видає тимчасовий
@@ -304,9 +322,15 @@ Helpers виконують реалізацію всередині готово�
 team-managed Space відхиляє. Без `--apply` виконується лише read-only перевірка. Скрипт запитує
 Jira administrator email та API token у терміналі; token показується зірочками. Після створення
 Space встановіть repository Forge app, тоді запустіть `prepare-jira.sh`: він створює/знаходить
-вказаний standard work type, три result fields, окремі screen schemes та окрему конфігурацію
-полів для цього Space. Forge-поле стає видимим і обов'язковим, а FireFlow Request ID, Status та
-Owner — видимими й необов'язковими. Спільна **Default Field Configuration** не змінюється. Якщо не передавати
+вказаний standard work type, Forge-поле Basic network request, три result fields, окремі work
+type, screen і field-configuration schemes та окремий Basic workflow scheme для цього типу.
+Work type scheme містить лише вибраний інтеграційний тип. Автоматичне призначення work type і
+workflow schemes виконується лише для порожнього Space; якщо в ньому вже є заявки і потрібна
+міграція, helper відмовляється її виконувати. Forge-поле стає
+видимим і обов'язковим, а FireFlow Request ID, Status та Owner — видимими й необов'язковими.
+Workflow має основний шлях `To Do → Plan → Approve → Implement → Validate → Match → Done` і
+кінцеві альтернативи `Rejected` та `Cancelled`; `Review` не входить до Basic. Спільні **Default
+Field Configuration** та схеми інших Space не змінюються. Якщо не передавати
 назви параметрами, helper послідовно запитає **Jira Space key**, **Jira Space name** і
 **Jira work type name**. Обидва Jira helpers приймають `--space-key`/`--space-name`; старі
 назви `--project-key`/`--project-name` також підтримуються. Для явного вибору унікального типу
@@ -434,7 +458,7 @@ state при цьому зберігаються.
 ```sh
 sudo install -d -m 0700 /root/jira-fireflow-deploy
 sudo install -o root -g root -m 0600 bus.json secrets.json /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run \
+sudo sh algosec-jira-bus-latest-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json
 ```
@@ -448,7 +472,7 @@ Installer перевіряє їх до `docker load`, запускає `doctor` 
 
 ```sh
 sudo install -o root -g root -m 0600 fireflow-ca.pem /root/jira-fireflow-deploy/
-sudo sh algosec-jira-bus-0.3.8-docker-amd64.run \
+sudo sh algosec-jira-bus-latest-docker-amd64.run \
   --config-file /root/jira-fireflow-deploy/bus.json \
   --secrets-file /root/jira-fireflow-deploy/secrets.json \
   --ca-file /root/jira-fireflow-deploy/fireflow-ca.pem
@@ -492,12 +516,12 @@ sudo dnf install -y ca-certificates python3.11
 python3.11 -c 'import sys, venv; assert sys.version_info >= (3, 11)'
 ```
 
-З [GitHub Release v0.3.8](https://github.com/kdimiter/jira-fireflow-bus/releases/tag/v0.3.8)
-завантажте `algosec-jira-bus-0.3.8-linux.run` і сусідній `.sha256`, потім:
+З [останнього GitHub Release](https://github.com/kdimiter/jira-fireflow-bus/releases/latest)
+завантажте `algosec-jira-bus-latest-linux.run` і сусідній `.sha256`, потім:
 
 ```sh
-sha256sum -c algosec-jira-bus-0.3.8-linux.run.sha256
-sudo sh algosec-jira-bus-0.3.8-linux.run
+sha256sum -c algosec-jira-bus-latest-linux.run.sha256
+sudo sh algosec-jira-bus-latest-linux.run
 sudo systemctl status algosec-jira-bus.timer algosec-jira-bus-reconcile.timer
 sudo journalctl -u algosec-jira-bus.service -n 100 --no-pager
 ```
@@ -556,12 +580,13 @@ Native secrets: `/etc/algosec-jira-bus/secrets.env`, режим `0600`, влас
 
 ![Початкові Jira статуси](screenshots/18-space-initial-statuses.png)
 
-До запуску шини додайте статуси `Plan`, `Approve`, `Review`, `Implement`, `Validate`,
-`Match`, `Rejected` і `Cancelled`, залишивши також `To Do` та `Done`. Створіть переходи
+До запуску шини додайте статуси `Plan`, `Approve`, `Implement`, `Validate`, `Match`, `Rejected`
+і `Cancelled`, залишивши також `To Do` та `Done`. Створіть переходи
 з такими самими назвами з будь-якого статусу до відповідного цільового статусу. Саме ці
 назви використовує `examples/jira-sync-basic-structured.json`; без них зворотне оновлення
 статусів із FireFlow не працюватиме. Якщо team-managed project не дозволяє відтворити цю
-схему, використайте company-managed project і `prepare-jira.sh`.
+схему, використайте company-managed project і `prepare-jira.sh`. Не додавайте `Review` для
+Basic network request: цей статус потрібен лише Multi-Approval та Parallel-Approval workflows.
 
 ### А.3. Перевірте Details і Access
 

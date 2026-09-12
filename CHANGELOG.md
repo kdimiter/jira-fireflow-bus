@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.9
+
+- Make `prepare-jira.sh` create and verify the complete Basic Change Traffic Request
+  workflow with `To Do`, `Plan`, `Approve`, `Implement`, `Validate`, `Match`, `Done`,
+  `Rejected`, and `Cancelled` statuses and matching global transitions.
+- Give the selected standard work type dedicated work-type, workflow, screen, and field
+  configuration schemes without changing shared Jira defaults or other work types.
+- Keep provisioning idempotent, refuse automatic migration of a nonempty Space, and read
+  every generated scheme and workflow back before reporting success.
+- Align fresh Jira-to-FireFlow and FireFlow-to-Jira mappings with the Basic workflow; the
+  Multi-/Parallel-Approval-only `Review` stage is no longer requested by Basic installs.
+- Validate the installer against a real Jira Cloud Space, Forge form, synthetic request,
+  and all nine available workflow transitions.
+
 ## 0.3.8
 
 - Add one `--guided` Linux workflow with terminal dialog windows for host prerequisites,
