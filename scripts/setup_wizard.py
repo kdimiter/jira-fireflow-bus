@@ -24,12 +24,9 @@ from algosec_jira_bus.console import prompt
 MAX_PRIVATE_TEXT_BYTES = 1024 * 1024
 DEFAULT_JIRA_STATUS_MAP = {
     'To Do': 'open',
-    'Reopened': 'open',
     'Done': 'resolved',
-    'Closed': 'resolved',
     'Rejected': 'rejected',
     'Cancelled': 'cancelled',
-    'Canceled': 'cancelled',
 }
 
 
@@ -446,7 +443,7 @@ def main():
     config = folder / 'bus.json'
     print('AlgoSec Jira integration setup. Secrets are not printed.')
     print('Guide: https://github.com/kdimiter/jira-fireflow-bus/blob/main/docs/DEPLOYMENT-GUIDE-uk.md')
-    print('Jira: deploy Forge, add Network Access and workflow before field discovery.')
+    print('Jira: deploy Forge and run prepare-jira.sh before field discovery.')
     print('Dedicated Jira and ASMS API accounts must already be prepared.')
     print('Grant only the rights validated for this deployment; the wizard does not grant roles.')
     print('Use a Jira token supported by this tenant-origin client; scoped gateway tokens are not supported by this wizard.')

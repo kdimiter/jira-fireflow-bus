@@ -1,3 +1,4 @@
+import copy
 import unittest
 from unittest.mock import patch
 
@@ -23,14 +24,38 @@ class JiraProvisionTests(unittest.TestCase):
         field_configuration_schemes = []
         field_configuration_mappings = {}
         project_field_scheme = None
-        issue_types = list((initial_project or {}).get('issueTypes', []))
+        project_issue_type_scheme = '10003'
+        issue_type_schemes = [{
+            'id': '10003', 'name': 'Default Issue Type Scheme',
+            'description': '', 'defaultIssueTypeId': '10000',
+            'isDefault': True,
+        }]
+        issue_type_scheme_items = {'10003': []}
+        project_workflow_scheme = '10002'
+        workflow_documents = []
+        workflow_schemes = [{
+            'id': '10002', 'name': 'Default Workflow Scheme',
+            'description': '', 'defaultWorkflow': 'jira',
+            'issueTypeMappings': {},
+        }]
+        statuses = [
+            {'id': '10040', 'name': 'To Do', 'description': '',
+             'scope': {'type': 'GLOBAL'}, 'statusCategory': 'TODO'},
+            {'id': '10043', 'name': 'Done', 'description': '',
+             'scope': {'type': 'GLOBAL'}, 'statusCategory': 'DONE'},
+        ]
+        issue_types = [
+            {**item, 'hierarchyLevel': item.get(
+                'hierarchyLevel', -1 if item.get('subtask') else 0)}
+            for item in (initial_project or {}).get('issueTypes', [])]
         fields = [
             {'id': 'customfield_10000', 'name': 'Мережеві доступи AlgoSec',
              'schema': {'custom': 'ari:cloud:ecosystem::extension/app/static/algosec-network-access'}},
         ]
         ids = iter(range(20000, 20100))
         def call(path, **kwargs):
-            nonlocal project, project_field_scheme
+            nonlocal project, project_field_scheme, project_issue_type_scheme
+            nonlocal project_workflow_scheme
             calls.append((path, kwargs))
             if path.endswith('/myself'): return {'accountId': 'admin-account'}
             if path.endswith('/mypermissions'):
@@ -53,19 +78,116 @@ class JiraProvisionTests(unittest.TestCase):
                 return list(issue_types)
             if path == '/rest/api/3/issuetype':
                 item = {'id': str(next(ids)), 'name': kwargs['body']['name'],
-                        'subtask': False}
+                        'hierarchyLevel': 0, 'subtask': False}
                 issue_types.append(item)
+                issue_type_scheme_items['10003'].append(item['id'])
                 return item
-            if path.endswith('/issuetypescheme/project'):
-                return {'values': [{'issueTypeScheme': {'id': '10003'}}]}
+            if path == '/rest/api/3/issuetypescheme/project':
+                if kwargs.get('method') == 'PUT':
+                    project_issue_type_scheme = kwargs['body']['issueTypeSchemeId']
+                    scheme_items = issue_type_scheme_items[project_issue_type_scheme]
+                    project['issueTypes'] = [
+                        item for item in issue_types if item['id'] in scheme_items]
+                    return None
+                scheme = next(item for item in issue_type_schemes
+                              if item['id'] == project_issue_type_scheme)
+                return {'values': [{
+                    'issueTypeScheme': copy.deepcopy(scheme),
+                    'projectIds': [str(project['id'])],
+                }], 'isLast': True, 'startAt': 0, 'maxResults': 100, 'total': 1}
+            if path == '/rest/api/3/issuetypescheme/mapping':
+                requested = kwargs.get('query', {}).get('issueTypeSchemeId')
+                scheme_ids = [str(value) for value in requested] if requested else list(
+                    issue_type_scheme_items)
+                values = [
+                    {'issueTypeSchemeId': scheme_id, 'issueTypeId': issue_type_id}
+                    for scheme_id in scheme_ids
+                    for issue_type_id in issue_type_scheme_items.get(scheme_id, [])]
+                return {'values': values, 'isLast': True, 'startAt': 0,
+                        'maxResults': 100, 'total': len(values)}
+            if path == '/rest/api/3/issuetypescheme' and kwargs.get('method') != 'POST':
+                query_string = kwargs.get('query', {}).get('queryString')
+                values = [copy.deepcopy(item) for item in issue_type_schemes
+                          if not query_string or query_string.casefold() in
+                          item['name'].casefold()]
+                for item in values:
+                    projects = ([{'id': str(project['id'])}]
+                                if item['id'] == project_issue_type_scheme else [])
+                    item['projects'] = {'values': projects, 'isLast': True,
+                                        'startAt': 0, 'maxResults': 100,
+                                        'total': len(projects)}
+                return {'values': values, 'isLast': True, 'startAt': 0,
+                        'maxResults': 100, 'total': len(values)}
+            if path == '/rest/api/3/issuetypescheme':
+                scheme_id = str(next(ids))
+                item = {'id': scheme_id, 'name': kwargs['body']['name'],
+                        'description': kwargs['body'].get('description', ''),
+                        'defaultIssueTypeId': kwargs['body'].get('defaultIssueTypeId')}
+                issue_type_schemes.append(item)
+                issue_type_scheme_items[scheme_id] = list(kwargs['body']['issueTypeIds'])
+                return {'issueTypeSchemeId': scheme_id}
             if path.endswith('/issuetype') and kwargs.get('method') == 'PUT':
-                for issue_type_id in kwargs['body']['issueTypeIds']:
-                    match = next(item for item in issue_types
-                                 if str(item['id']) == str(issue_type_id))
-                    if not any(str(item.get('id')) == str(issue_type_id)
-                               for item in project.setdefault('issueTypes', [])):
-                        project['issueTypes'].append(match)
                 return None
+            if path == '/rest/api/3/search/jql':
+                return {'issues': []}
+            if path == '/rest/api/3/statuses/byNames':
+                names = kwargs.get('query', {}).get('name', [])
+                return [copy.deepcopy(item) for item in statuses
+                        if item['name'] in names]
+            if path == '/rest/api/3/workflows/create/validation':
+                return {'errors': []}
+            if path == '/rest/api/3/workflows/create':
+                document = copy.deepcopy(kwargs['body'])
+                for status in document['statuses']:
+                    status['scope'] = copy.deepcopy(document['scope'])
+                for workflow in document['workflows']:
+                    workflow['id'] = 'workflow-' + str(next(ids))
+                    workflow['scope'] = copy.deepcopy(document['scope'])
+                workflow_documents.append(document)
+                return copy.deepcopy(document)
+            if path == '/rest/api/3/workflows':
+                body = kwargs.get('body', {})
+                wanted_names = set(body.get('workflowNames', []))
+                wanted_ids = set(body.get('workflowIds', []))
+                matched = []
+                matched_statuses = []
+                for document in workflow_documents:
+                    selected = [workflow for workflow in document['workflows']
+                                if workflow.get('name') in wanted_names
+                                or workflow.get('id') in wanted_ids]
+                    if selected:
+                        matched.extend(copy.deepcopy(selected))
+                        matched_statuses.extend(copy.deepcopy(document['statuses']))
+                return {'workflows': matched, 'statuses': matched_statuses}
+            if path == '/rest/api/3/workflowscheme/project':
+                if kwargs.get('method') == 'PUT':
+                    project_workflow_scheme = str(kwargs['body']['workflowSchemeId'])
+                    return None
+                scheme = next(item for item in workflow_schemes
+                              if item['id'] == project_workflow_scheme)
+                scheme = copy.deepcopy(scheme)
+                if scheme.get('name') == 'Default Workflow Scheme':
+                    scheme.pop('id', None)
+                return {'values': [{'workflowScheme': scheme}]}
+            if (path.startswith('/rest/api/3/workflowscheme/')
+                    and path.endswith('/projectUsages')):
+                scheme_id = path.split('/')[5]
+                values = ([{'id': str(project['id'])}]
+                          if project_workflow_scheme == scheme_id else [])
+                return {'workflowSchemeId': scheme_id,
+                        'projects': {'values': values, 'nextPageToken': None}}
+            if path.startswith('/rest/api/3/workflowscheme/'):
+                scheme_id = path.split('/')[5]
+                return copy.deepcopy(next(item for item in workflow_schemes
+                                          if item['id'] == scheme_id))
+            if path == '/rest/api/3/workflowscheme' and kwargs.get('method') != 'POST':
+                return {'values': copy.deepcopy(workflow_schemes), 'isLast': True,
+                        'startAt': 0, 'maxResults': 100,
+                        'total': len(workflow_schemes)}
+            if path == '/rest/api/3/workflowscheme':
+                item = {'id': str(next(ids)), **copy.deepcopy(kwargs['body'])}
+                workflow_schemes.append(item)
+                return copy.deepcopy(item)
             if path == '/rest/api/3/field' and kwargs.get('method') != 'POST': return fields
             if path == '/rest/api/3/field':
                 item = {'id': 'customfield_' + str(next(ids)),
@@ -223,6 +345,166 @@ class JiraProvisionTests(unittest.TestCase):
         self.assertIn(('/rest/api/3/project', 'POST'), mutations)
         self.assertIn(('/rest/api/3/issuetype', 'POST'), mutations)
         self.assertNotIn('token', str(result).lower())
+
+    def test_apply_creates_exact_basic_workflow_and_isolated_mapping(self):
+        call, calls = self.fixture()
+
+        result = prepare_jira(call, apply=True, project_key='BASIC',
+                              project_name='Basic Requests',
+                              issue_type_name='Basic Network Request')
+
+        issue_type_body = next(options['body'] for path, options in calls
+                               if path == '/rest/api/3/issuetype'
+                               and options.get('method') == 'POST')
+        self.assertEqual(issue_type_body['hierarchyLevel'], 0)
+        self.assertNotIn('type', issue_type_body)
+        work_type_scheme = next(options['body'] for path, options in calls
+                                if path == '/rest/api/3/issuetypescheme'
+                                and options.get('method') == 'POST')
+        self.assertEqual(work_type_scheme['issueTypeIds'],
+                         [result['issue_type_id']])
+        self.assertEqual(work_type_scheme['defaultIssueTypeId'],
+                         result['issue_type_id'])
+        work_type_assignment = next(options['body'] for path, options in calls
+                                    if path == '/rest/api/3/issuetypescheme/project'
+                                    and options.get('method') == 'PUT')
+        self.assertEqual(work_type_assignment, {
+            'issueTypeSchemeId': result['issue_type_scheme_id'],
+            'projectId': '10001',
+        })
+        payload = next(options['body'] for path, options in calls
+                       if path == '/rest/api/3/workflows/create')
+        categories = {item['name']: item['statusCategory']
+                      for item in payload['statuses']}
+        self.assertEqual(categories, {
+            'To Do': 'TODO', 'Plan': 'IN_PROGRESS',
+            'Approve': 'IN_PROGRESS', 'Implement': 'IN_PROGRESS',
+            'Validate': 'IN_PROGRESS', 'Match': 'IN_PROGRESS',
+            'Done': 'DONE', 'Rejected': 'DONE', 'Cancelled': 'DONE',
+        })
+        self.assertNotIn('Review', categories)
+        references = {item['statusReference']: item['name']
+                      for item in payload['statuses']}
+        transitions = {(item['name'], item['type'],
+                        references[item['toStatusReference']])
+                       for item in payload['workflows'][0]['transitions']}
+        expected = {('Create', 'INITIAL', 'To Do')}
+        expected.update((name, 'GLOBAL', name) for name in categories)
+        self.assertEqual(transitions, expected)
+        scheme_body = next(options['body'] for path, options in calls
+                           if path == '/rest/api/3/workflowscheme'
+                           and options.get('method') == 'POST')
+        self.assertEqual(scheme_body['defaultWorkflow'], 'jira')
+        self.assertEqual(scheme_body['issueTypeMappings'], {
+            result['issue_type_id']: result['workflow_name']})
+        assignment = next(options['body'] for path, options in calls
+                          if path == '/rest/api/3/workflowscheme/project'
+                          and options.get('method') == 'PUT')
+        self.assertEqual(assignment, {
+            'projectId': '10001',
+            'workflowSchemeId': result['workflow_scheme_id'],
+        })
+
+    def test_workflow_preparation_is_idempotent(self):
+        call, calls = self.fixture({
+            'id': '10001', 'key': 'ALGO', 'name': 'AlgoSec',
+            'issueTypes': [], 'simplified': False})
+        first = prepare_jira(call, apply=True)
+        calls.clear()
+
+        second = prepare_jira(call, apply=True)
+
+        workflow_mutations = [path for path, options in calls
+                              if options.get('method') in ('POST', 'PUT')
+                              and (path == '/rest/api/3/issuetypescheme'
+                                   or path == '/rest/api/3/issuetypescheme/project'
+                                   or path.startswith('/rest/api/3/workflows/create')
+                                   or path == '/rest/api/3/workflowscheme'
+                                   or path == '/rest/api/3/workflowscheme/project')]
+        self.assertEqual(workflow_mutations, [])
+        self.assertEqual(second['workflow_id'], first['workflow_id'])
+        self.assertEqual(second['workflow_scheme_id'],
+                         first['workflow_scheme_id'])
+
+    def test_existing_work_type_scheme_requires_complete_project_usage(self):
+        base_call, calls = self.fixture({
+            'id': '10001', 'key': 'ALGO', 'name': 'AlgoSec',
+            'issueTypes': [], 'simplified': False})
+        prepare_jira(base_call, apply=True)
+        calls.clear()
+
+        def call(path, **options):
+            result = base_call(path, **options)
+            if (path == '/rest/api/3/issuetypescheme'
+                    and options.get('method') != 'POST'):
+                result = copy.deepcopy(result)
+                for item in result['values']:
+                    if item.get('name') == 'ALGO Jira-FireFlow Work Type Scheme':
+                        item.pop('projects', None)
+            return result
+
+        with self.assertRaisesRegex(JiraProvisionError, 'incomplete work type scheme usage'):
+            prepare_jira(call, apply=True)
+        self.assertFalse(any(path == '/rest/api/3/issuetypescheme/project'
+                             and options.get('method') == 'PUT'
+                             for path, options in calls))
+
+    def test_existing_work_type_scheme_with_extra_type_is_refused(self):
+        base_call, calls = self.fixture({
+            'id': '10001', 'key': 'ALGO', 'name': 'AlgoSec',
+            'issueTypes': [], 'simplified': False})
+        first = prepare_jira(base_call, apply=True)
+        calls.clear()
+
+        def call(path, **options):
+            result = base_call(path, **options)
+            if path == '/rest/api/3/issuetypescheme/mapping':
+                result = copy.deepcopy(result)
+                result['values'].append({
+                    'issueTypeSchemeId': first['issue_type_scheme_id'],
+                    'issueTypeId': '19999',
+                })
+                result['total'] = len(result['values'])
+            return result
+
+        with self.assertRaisesRegex(JiraProvisionError, 'unexpected work types'):
+            prepare_jira(call, apply=True)
+
+    def test_nonempty_space_refuses_automatic_workflow_migration(self):
+        base_call, calls = self.fixture({
+            'id': '10001', 'key': 'ALGO', 'name': 'AlgoSec',
+            'issueTypes': [], 'simplified': False})
+
+        def call(path, **options):
+            if path == '/rest/api/3/search/jql':
+                return {'issues': [{'id': '10099'}]}
+            return base_call(path, **options)
+
+        with self.assertRaisesRegex(JiraProvisionError, 'migration is refused'):
+            prepare_jira(call, apply=True)
+        self.assertFalse(any(path.startswith('/rest/api/3/workflows/create')
+                             for path, _options in calls))
+
+    def test_same_named_unmanaged_workflow_is_refused(self):
+        base_call, calls = self.fixture({
+            'id': '10001', 'key': 'ALGO', 'name': 'AlgoSec',
+            'issueTypes': [], 'simplified': False})
+
+        def call(path, **options):
+            if path == '/rest/api/3/workflows':
+                return {'workflows': [{
+                    'id': 'foreign-workflow',
+                    'name': 'ALGO Jira-FireFlow Basic Workflow',
+                    'description': 'Created by somebody else',
+                    'scope': {'type': 'GLOBAL'},
+                    'statuses': [], 'transitions': [],
+                }], 'statuses': []}
+            return base_call(path, **options)
+
+        with self.assertRaisesRegex(JiraProvisionError, 'not managed'):
+            prepare_jira(call, apply=True)
+        self.assertFalse(any(path == '/rest/api/3/workflows/create'
+                             for path, _options in calls))
 
     def test_apply_isolates_required_and_result_fields_from_default_configuration(self):
         call, calls = self.fixture({

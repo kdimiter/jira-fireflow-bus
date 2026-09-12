@@ -14,6 +14,12 @@ spec.loader.exec_module(wizard)
 
 
 class SetupWizardTests(unittest.TestCase):
+    def test_fresh_reverse_status_map_matches_the_basic_workflow(self):
+        self.assertEqual(wizard.DEFAULT_JIRA_STATUS_MAP, {
+            'To Do': 'open', 'Done': 'resolved',
+            'Rejected': 'rejected', 'Cancelled': 'cancelled',
+        })
+
     def test_jira_to_fireflow_menu_preserves_existing_settings_and_secrets(self):
         settings = {
             'apply': True,

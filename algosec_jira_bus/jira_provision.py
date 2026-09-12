@@ -4,6 +4,7 @@ import getpass
 import json
 import re
 import urllib.error
+import uuid
 
 from .transport import https_origin, request_json, request_json_string
 from .console import ConsoleError, prompt
@@ -19,6 +20,22 @@ RESULT_FIELDS = ('FireFlow Request ID', 'FireFlow Status', 'FireFlow Owner')
 MARKER = 'Managed by jira-fireflow-bus prepare-jira.sh'
 SPACE_TEMPLATE = 'com.atlassian.jira-core-project-templates:jira-core-project-management'
 PAGE_SIZE = 100
+BASIC_WORKFLOW_STATUSES = (
+    ('To Do', 'TODO'),
+    ('Plan', 'IN_PROGRESS'),
+    ('Approve', 'IN_PROGRESS'),
+    ('Implement', 'IN_PROGRESS'),
+    ('Validate', 'IN_PROGRESS'),
+    ('Match', 'IN_PROGRESS'),
+    ('Done', 'DONE'),
+    ('Rejected', 'DONE'),
+    ('Cancelled', 'DONE'),
+)
+BASIC_WORKFLOW_TRANSITION_IDS = {
+    'To Do': '11', 'Plan': '21', 'Approve': '31', 'Implement': '41',
+    'Validate': '51', 'Match': '61', 'Done': '71', 'Rejected': '81',
+    'Cancelled': '91',
+}
 
 
 def _identifier(value, label):
@@ -276,6 +293,373 @@ def _assign_field_configuration_scheme(call, *, project_key, project_id,
     return 'field-scheme-project:' + project_key
 
 
+def _project_issue_type_scheme(call, project_id):
+    assignments = _page_values(
+        call, '/rest/api/3/issuetypescheme/project',
+        query={'projectId': [project_id]})
+    matches = [item for item in assignments if isinstance(item, dict)
+               and project_id in [str(value) for value in item.get('projectIds', [])]]
+    if len(matches) != 1 or not isinstance(matches[0].get('issueTypeScheme'), dict):
+        raise JiraProvisionError('Jira project work type scheme was not found uniquely')
+    return matches[0]['issueTypeScheme']
+
+
+def _issue_type_scheme_items(call, scheme_id):
+    items = _page_values(
+        call, '/rest/api/3/issuetypescheme/mapping',
+        query={'issueTypeSchemeId': [scheme_id]})
+    result = []
+    for item in items:
+        if (not isinstance(item, dict)
+                or str(item.get('issueTypeSchemeId')) != scheme_id):
+            raise JiraProvisionError('Jira returned an invalid work type scheme mapping')
+        result.append(_identifier(item.get('issueTypeId'), 'work type ID'))
+    if len(result) != len(set(result)):
+        raise JiraProvisionError('Jira work type scheme contains duplicate mappings')
+    return result
+
+
+def _ensure_issue_type_scheme(call, *, apply, project_key, project_id,
+                              issue_type_id, created):
+    """Keep the integration work type in a project-owned scheme."""
+    scheme_name = project_key + ' Jira-FireFlow Work Type Scheme'
+    current = _project_issue_type_scheme(call, project_id)
+    current_id = _identifier(current.get('id'), 'work type scheme ID')
+    schemes = _page_values(
+        call, '/rest/api/3/issuetypescheme',
+        query={'queryString': scheme_name, 'expand': 'projects,issueTypes'})
+    scheme = _managed_named(schemes, scheme_name, 'work type scheme')
+    candidate_id = (None if scheme is None else
+                    _identifier(scheme.get('id'), 'work type scheme ID'))
+    if current_id != candidate_id and not _project_is_empty(call, project_key):
+        raise JiraProvisionError(
+            'Jira Space already contains issues; automatic work type migration is refused')
+    if scheme is None:
+        if not apply:
+            return {'ready': False, 'planned': ['work-type-scheme:' + scheme_name]}
+        response = call('/rest/api/3/issuetypescheme', method='POST', body={
+            'name': scheme_name, 'description': MARKER,
+            'defaultIssueTypeId': issue_type_id,
+            'issueTypeIds': [issue_type_id],
+        })
+        scheme_id = _identifier(
+            response.get('issueTypeSchemeId') if isinstance(response, dict) else None,
+            'work type scheme ID')
+        created.append('work-type-scheme:' + scheme_name)
+    else:
+        scheme_id = _identifier(scheme.get('id'), 'work type scheme ID')
+        projects = scheme.get('projects')
+        values = projects.get('values') if isinstance(projects, dict) else None
+        if (not isinstance(values, list) or projects.get('isLast') is not True):
+            raise JiraProvisionError('Jira returned an incomplete work type scheme usage')
+        project_ids = []
+        for item in values:
+            if not isinstance(item, dict):
+                raise JiraProvisionError('Jira returned an invalid work type scheme usage')
+            project_ids.append(_identifier(item.get('id'), 'project ID'))
+        foreign = {value for value in project_ids if value != project_id}
+        if foreign:
+            raise JiraProvisionError(
+                'Managed Jira work type scheme is assigned to another Jira project')
+    if _issue_type_scheme_items(call, scheme_id) != [issue_type_id]:
+        raise JiraProvisionError('Managed Jira work type scheme has unexpected work types')
+    return {'ready': True, 'issue_type_scheme_id': scheme_id,
+            'assignment_needed': current_id != scheme_id}
+
+
+def _assign_issue_type_scheme(call, *, project_key, project_id, scheme):
+    try:
+        call('/rest/api/3/issuetypescheme/project', method='PUT', body={
+            'issueTypeSchemeId': scheme['issue_type_scheme_id'],
+            'projectId': project_id,
+        })
+    except JiraProvisionError:
+        raise JiraProvisionError(
+            'Jira work type scheme assignment failed; the Space must be empty') from None
+    return 'work-type-scheme-project:' + project_key
+
+
+def _workflow_id(value):
+    if (not isinstance(value, str) or not 1 <= len(value) <= 255
+            or any(ord(char) < 33 or ord(char) == 127 for char in value)):
+        raise JiraProvisionError('Jira returned an invalid workflow ID')
+    return value
+
+
+def _verify_basic_workflow(document, workflow_name):
+    if not isinstance(document, dict):
+        raise JiraProvisionError('Jira returned an invalid workflow response')
+    workflows = document.get('workflows')
+    statuses = document.get('statuses')
+    if not isinstance(workflows, list) or not isinstance(statuses, list):
+        raise JiraProvisionError('Jira returned an invalid workflow response')
+    matches = [item for item in workflows
+               if isinstance(item, dict) and item.get('name') == workflow_name]
+    if len(matches) != 1:
+        raise JiraProvisionError('Managed Jira workflow was not found uniquely')
+    workflow = matches[0]
+    if (workflow.get('description') != MARKER
+            or workflow.get('scope', {}).get('type') != 'GLOBAL'):
+        raise JiraProvisionError(
+            'Existing Jira workflow with the managed name is not managed by this installer')
+
+    by_reference = {}
+    for item in statuses:
+        if not isinstance(item, dict):
+            raise JiraProvisionError('Jira returned an invalid workflow status')
+        reference = str(item.get('statusReference', ''))
+        if not reference or reference in by_reference:
+            raise JiraProvisionError('Jira returned duplicate workflow status references')
+        by_reference[reference] = item
+
+    used = workflow.get('statuses')
+    transitions = workflow.get('transitions')
+    if not isinstance(used, list) or not isinstance(transitions, list):
+        raise JiraProvisionError('Jira returned an invalid workflow definition')
+    used_names = set()
+    for item in used:
+        if (not isinstance(item, dict) or item.get('properties') not in (None, {})
+                or item.get('approvalConfiguration') is not None):
+            raise JiraProvisionError('Managed Jira workflow has unexpected status rules')
+        status = by_reference.get(str(item.get('statusReference', '')))
+        if status is None:
+            raise JiraProvisionError('Jira workflow references an unknown status')
+        if status.get('scope', {}).get('type') != 'GLOBAL':
+            raise JiraProvisionError('Managed Jira workflow uses a non-global status')
+        used_names.add(status.get('name'))
+    expected_categories = dict(BASIC_WORKFLOW_STATUSES)
+    if len(used) != len(expected_categories) or used_names != set(expected_categories):
+        raise JiraProvisionError('Managed Jira workflow has unexpected statuses')
+    for status in by_reference.values():
+        name = status.get('name')
+        if name in used_names and status.get('statusCategory') != expected_categories[name]:
+            raise JiraProvisionError('Managed Jira workflow has an invalid status category')
+
+    actual_transitions = set()
+    for transition in transitions:
+        if not isinstance(transition, dict):
+            raise JiraProvisionError('Jira returned an invalid workflow transition')
+        target = by_reference.get(str(transition.get('toStatusReference', '')))
+        if target is None:
+            raise JiraProvisionError('Jira workflow transition has an unknown target')
+        actual_transitions.add((transition.get('name'), transition.get('type'),
+                                target.get('name')))
+        for name in ('actions', 'links', 'triggers', 'validators'):
+            if transition.get(name) not in (None, []):
+                raise JiraProvisionError(
+                    'Managed Jira workflow has unexpected transition rules')
+        if (transition.get('conditions') not in (None, {})
+                or transition.get('transitionScreen') is not None
+                or transition.get('properties') not in (None, {})
+                or transition.get('customIssueEventId') is not None):
+            raise JiraProvisionError(
+                'Managed Jira workflow has unexpected transition rules')
+    expected_transitions = {('Create', 'INITIAL', 'To Do')}
+    expected_transitions.update((name, 'GLOBAL', name)
+                                for name, _category in BASIC_WORKFLOW_STATUSES)
+    if (len(transitions) != len(expected_transitions)
+            or actual_transitions != expected_transitions):
+        raise JiraProvisionError('Managed Jira workflow has unexpected transitions')
+    return _workflow_id(workflow.get('id'))
+
+
+def _basic_workflow_payload(call, project_key, workflow_name):
+    names = [name for name, _category in BASIC_WORKFLOW_STATUSES]
+    existing = call('/rest/api/3/statuses/byNames', query={'name': names})
+    if not isinstance(existing, list):
+        raise JiraProvisionError('Jira returned an invalid status-name response')
+    global_statuses = {}
+    for name, category in BASIC_WORKFLOW_STATUSES:
+        matches = [item for item in existing if isinstance(item, dict)
+                   and item.get('name') == name
+                   and item.get('scope', {}).get('type') == 'GLOBAL']
+        if len(matches) > 1:
+            raise JiraProvisionError('Jira returned duplicate global status: ' + name)
+        if matches and matches[0].get('statusCategory') != category:
+            raise JiraProvisionError('Existing Jira status has the wrong category: ' + name)
+        global_statuses[name] = matches[0] if matches else None
+
+    references = {
+        name: str(uuid.uuid5(uuid.NAMESPACE_URL,
+                             'jira-fireflow-bus/%s/%s' % (project_key, name)))
+        for name in names
+    }
+    statuses = []
+    for name, category in BASIC_WORKFLOW_STATUSES:
+        status = {
+            'name': name, 'description': MARKER, 'statusCategory': category,
+            'statusReference': references[name],
+        }
+        current = global_statuses[name]
+        if current is not None:
+            status['id'] = _identifier(current.get('id'), 'status ID')
+            status['description'] = str(current.get('description') or '')
+        statuses.append(status)
+
+    positions = {name: index for index, name in enumerate(names)}
+    workflow_statuses = [
+        {'layout': {'x': 120 + positions[name] * 180, 'y': 0},
+         'properties': {}, 'statusReference': references[name]}
+        for name in names
+    ]
+    transitions = [{
+        'actions': [], 'description': '', 'id': '1', 'links': [],
+        'name': 'Create', 'properties': {},
+        'toStatusReference': references['To Do'], 'triggers': [],
+        'type': 'INITIAL', 'validators': [],
+    }]
+    transitions.extend({
+        'actions': [], 'description': '',
+        'id': BASIC_WORKFLOW_TRANSITION_IDS[name], 'links': [],
+        'name': name, 'properties': {}, 'toStatusReference': references[name],
+        'triggers': [], 'type': 'GLOBAL', 'validators': [],
+    } for name in names)
+    return {
+        'scope': {'type': 'GLOBAL'},
+        'statuses': statuses,
+        'workflows': [{
+            'description': MARKER, 'name': workflow_name,
+            'startPointLayout': {'x': -100, 'y': 0},
+            'statuses': workflow_statuses, 'transitions': transitions,
+        }],
+    }
+
+
+def _project_workflow_scheme(call, project_id):
+    response = call('/rest/api/3/workflowscheme/project',
+                    query={'projectId': project_id})
+    values = response.get('values') if isinstance(response, dict) else None
+    if not isinstance(values, list) or len(values) != 1:
+        raise JiraProvisionError('Jira project workflow scheme was not found uniquely')
+    scheme = values[0].get('workflowScheme')
+    if not isinstance(scheme, dict):
+        raise JiraProvisionError('Jira returned an invalid project workflow scheme')
+    return scheme
+
+
+def _project_is_empty(call, project_key):
+    result = call('/rest/api/3/search/jql', query={
+        'jql': 'project = "%s"' % project_key, 'maxResults': 1, 'fields': ['id']})
+    issues = result.get('issues') if isinstance(result, dict) else None
+    if not isinstance(issues, list):
+        raise JiraProvisionError('Jira returned an invalid project issue search response')
+    return not issues
+
+
+def _ensure_basic_workflow(call, *, apply, project_key, project_id,
+                           issue_type_id, created):
+    """Create and isolate the Basic Change Traffic Request mirror workflow."""
+    workflow_name = project_key + ' Jira-FireFlow Basic Workflow'
+    scheme_name = project_key + ' Jira-FireFlow Workflow Scheme'
+    current_scheme = _project_workflow_scheme(call, project_id)
+    current_scheme_id = (None if current_scheme.get('id') is None else
+                         _identifier(current_scheme.get('id'), 'workflow scheme ID'))
+    current_is_managed = (current_scheme.get('name') == scheme_name
+                          and current_scheme.get('description') == MARKER)
+    if not current_is_managed and not _project_is_empty(call, project_key):
+        raise JiraProvisionError(
+            'Jira Space already contains issues; automatic workflow migration is refused')
+
+    read = call('/rest/api/3/workflows', method='POST', optional=True, body={
+        'projectAndIssueTypes': [], 'workflowIds': [],
+        'workflowNames': [workflow_name],
+    })
+    if read is None:
+        read = {'workflows': [], 'statuses': []}
+    workflows = read.get('workflows') if isinstance(read, dict) else None
+    if not isinstance(workflows, list):
+        raise JiraProvisionError('Jira returned an invalid workflow response')
+    named = [item for item in workflows
+             if isinstance(item, dict) and item.get('name') == workflow_name]
+    if len(named) > 1:
+        raise JiraProvisionError('Managed Jira workflow was not found uniquely')
+    if named:
+        workflow_id = _verify_basic_workflow(read, workflow_name)
+    elif not apply:
+        return {'ready': False, 'planned': ['workflow:' + workflow_name]}
+    else:
+        payload = _basic_workflow_payload(call, project_key, workflow_name)
+        validation = call('/rest/api/3/workflows/create/validation', method='POST', body={
+            'payload': payload, 'validationOptions': {'levels': ['ERROR', 'WARNING']},
+        })
+        errors = validation.get('errors') if isinstance(validation, dict) else None
+        if not isinstance(errors, list):
+            raise JiraProvisionError('Jira returned an invalid workflow validation response')
+        if any(not isinstance(item, dict)
+               or item.get('level') not in ('ERROR', 'WARNING') for item in errors):
+            raise JiraProvisionError('Jira returned an invalid workflow validation result')
+        if any(item.get('level') == 'ERROR' for item in errors):
+            raise JiraProvisionError('Jira rejected the Basic workflow definition')
+        created_workflow = call('/rest/api/3/workflows/create', method='POST', body=payload)
+        workflow_id = _verify_basic_workflow(created_workflow, workflow_name)
+        created.append('workflow:' + workflow_name)
+
+    schemes = _page_values(call, '/rest/api/3/workflowscheme')
+    scheme = _managed_named(schemes, scheme_name, 'workflow scheme')
+    if scheme is None:
+        if not apply:
+            return {'ready': False, 'planned': ['workflow-scheme:' + scheme_name]}
+        default_workflow = current_scheme.get('defaultWorkflow')
+        mappings = current_scheme.get('issueTypeMappings', {})
+        if default_workflow is not None and (not isinstance(default_workflow, str)
+                                             or not default_workflow):
+            raise JiraProvisionError('Jira returned an invalid current workflow scheme')
+        if not isinstance(mappings, dict):
+            raise JiraProvisionError('Jira returned an invalid current workflow scheme')
+        desired_mappings = {str(key): value for key, value in mappings.items()}
+        desired_mappings[issue_type_id] = workflow_name
+        body = {
+            'name': scheme_name, 'description': MARKER,
+            'issueTypeMappings': desired_mappings,
+        }
+        if default_workflow is not None:
+            body['defaultWorkflow'] = default_workflow
+        scheme = call('/rest/api/3/workflowscheme', method='POST', body=body)
+        created.append('workflow-scheme:' + scheme_name)
+    scheme_id = _identifier(scheme.get('id'), 'workflow scheme ID')
+    scheme = call('/rest/api/3/workflowscheme/' + scheme_id)
+    if not isinstance(scheme, dict):
+        raise JiraProvisionError('Jira returned an invalid workflow scheme')
+    mappings = scheme.get('issueTypeMappings')
+    if (not isinstance(mappings, dict)
+            or mappings.get(issue_type_id) != workflow_name):
+        raise JiraProvisionError('Managed Jira workflow scheme has an invalid work type mapping')
+    usages = call('/rest/api/3/workflowscheme/' + scheme_id + '/projectUsages',
+                  query={'maxResults': 100})
+    projects = usages.get('projects') if isinstance(usages, dict) else None
+    values = projects.get('values') if isinstance(projects, dict) else None
+    if (str(usages.get('workflowSchemeId')) != scheme_id
+            or not isinstance(values, list)
+            or projects.get('nextPageToken') not in (None, '')):
+        raise JiraProvisionError('Jira returned an invalid workflow scheme usage response')
+    project_ids = []
+    for item in values:
+        if not isinstance(item, dict):
+            raise JiraProvisionError('Jira returned an invalid workflow scheme usage')
+        project_ids.append(_identifier(item.get('id'), 'project ID'))
+    foreign_projects = {value for value in project_ids if value != project_id}
+    if foreign_projects:
+        raise JiraProvisionError(
+            'Managed Jira workflow scheme is assigned to another Jira project')
+    return {
+        'ready': True, 'workflow_id': workflow_id, 'workflow_name': workflow_name,
+        'workflow_scheme_id': scheme_id,
+        'assignment_needed': current_scheme_id != scheme_id,
+    }
+
+
+def _assign_workflow_scheme(call, *, project_key, project_id, workflow):
+    try:
+        call('/rest/api/3/workflowscheme/project', method='PUT', body={
+            'projectId': project_id,
+            'workflowSchemeId': workflow['workflow_scheme_id'],
+        })
+    except JiraProvisionError:
+        raise JiraProvisionError(
+            'Jira workflow scheme assignment failed; the Space must be empty') from None
+    return 'workflow-scheme-project:' + project_key
+
+
 def ensure_space(call, *, apply, project_key='ALGO', project_name='AlgoSec',
                  account_id=None):
     """Create or verify one company-managed Jira Space through the supported project API."""
@@ -290,7 +674,7 @@ def ensure_space(call, *, apply, project_key='ALGO', project_name='AlgoSec',
         if (not isinstance(project, dict) or str(project.get('key')) != project_key
                 or project.get('name') != project_name):
             raise JiraProvisionError('The Jira Space key already belongs to another name')
-        if project.get('simplified') is True:
+        if project.get('simplified') is not False:
             raise JiraProvisionError('Use a company-managed Jira Space')
         return {'ready': True, 'created': False, 'space_key': project_key,
                 'space_name': project_name,
@@ -343,38 +727,50 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
         project = call('/rest/api/3/project/' + project_key)
         created.append('project:' + project_key)
     project_id = _identifier(project.get('id'), 'project ID')
-    if project.get('simplified') is True:
+    if project.get('simplified') is not False:
         raise JiraProvisionError('Use a company-managed Jira project')
 
     issue_types = call('/rest/api/3/issuetype')
-    matches = [item for item in issue_types if item.get('name') == issue_type_name
-               and item.get('subtask') is not True]
-    if len(matches) > 1:
+    named_issue_types = [item for item in issue_types
+                         if item.get('name') == issue_type_name]
+    matches = [item for item in named_issue_types
+               if item.get('hierarchyLevel') == 0 and item.get('subtask') is not True]
+    if named_issue_types and len(matches) != 1:
         raise JiraProvisionError(
-            'More than one work type named %r exists; choose a unique --work-type-name'
-            % issue_type_name)
+            'Existing Jira work type with this name is ambiguous or not a standard type')
     if not matches:
         if not apply:
             return {'ready': False, 'planned': created + ['issue-type:' + issue_type_name],
                     'manual': ['Install the Forge app before apply']}
         issue_type = call('/rest/api/3/issuetype', method='POST', body={
-            'name': issue_type_name, 'description': MARKER, 'type': 'standard'})
+            'name': issue_type_name, 'description': MARKER, 'hierarchyLevel': 0})
         created.append('issue-type:' + issue_type_name)
     else:
         issue_type = matches[0]
     issue_type_id = _identifier(issue_type.get('id'), 'issue type ID')
-    associated = any(str(item.get('id')) == issue_type_id
-                     for item in project.get('issueTypes', []))
-    if not associated and apply:
-        schemes = call('/rest/api/3/issuetypescheme/project',
-                       query={'projectId': project_id})
-        values = schemes.get('values', []) if isinstance(schemes, dict) else []
-        scheme = values[0].get('issueTypeScheme') if values else None
-        scheme_id = _identifier(scheme.get('id') if isinstance(scheme, dict) else '',
-                                'issue type scheme ID')
-        call('/rest/api/3/issuetypescheme/' + scheme_id + '/issuetype', method='PUT',
-             body={'issueTypeIds': [issue_type_id]})
-        created.append('issue-type-association:' + project_key)
+    issue_type_scheme = _ensure_issue_type_scheme(
+        call, apply=apply, project_key=project_key, project_id=project_id,
+        issue_type_id=issue_type_id, created=created)
+    if not issue_type_scheme['ready']:
+        return {'ready': False,
+                'planned': created + issue_type_scheme['planned'], 'manual': []}
+    if issue_type_scheme['assignment_needed']:
+        if not apply:
+            return {'ready': False,
+                    'planned': created + ['work-type-scheme-project:' + project_key],
+                    'manual': []}
+        created.append(_assign_issue_type_scheme(
+            call, project_key=project_key, project_id=project_id,
+            scheme=issue_type_scheme))
+    assigned_issue_type_scheme = _project_issue_type_scheme(call, project_id)
+    if str(assigned_issue_type_scheme.get('id')) != issue_type_scheme['issue_type_scheme_id']:
+        raise JiraProvisionError('Jira did not confirm the assigned work type scheme')
+
+    workflow = _ensure_basic_workflow(
+        call, apply=apply, project_key=project_key, project_id=project_id,
+        issue_type_id=issue_type_id, created=created)
+    if not workflow['ready']:
+        return {'ready': False, 'planned': created + workflow['planned'], 'manual': []}
 
     fields = call('/rest/api/3/field')
     forge_matches = [field for field in fields
@@ -495,11 +891,27 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
             call, project_key=project_key, project_id=project_id,
             field_configuration=field_configuration))
 
-    # New projects already have a working default workflow. The bus maps to its standard
-    # To Do / In Progress / Done states; creating another workflow would add no value.
+    if workflow['assignment_needed']:
+        if not apply:
+            return {'ready': False,
+                    'planned': created + ['workflow-scheme-project:' + project_key],
+                    'manual': []}
+        created.append(_assign_workflow_scheme(
+            call, project_key=project_key, project_id=project_id, workflow=workflow))
+
+    assigned_workflow_scheme = _project_workflow_scheme(call, project_id)
+    if str(assigned_workflow_scheme.get('id')) != workflow['workflow_scheme_id']:
+        raise JiraProvisionError('Jira did not confirm the assigned workflow scheme')
+    verified_workflow = call('/rest/api/3/workflows', method='POST', body={
+        'projectAndIssueTypes': [], 'workflowIds': [workflow['workflow_id']],
+        'workflowNames': [],
+    })
+    _verify_basic_workflow(verified_workflow, workflow['workflow_name'])
+
     return {
         'ready': bool(apply), 'project_key': project_key, 'project_id': project_id,
         'issue_type_id': issue_type_id, 'issue_type_name': issue_type_name,
+        'issue_type_scheme_id': issue_type_scheme['issue_type_scheme_id'],
         'fields': {'structured': selected['structured'],
                    'id': selected['FireFlow Request ID'],
                    'status': selected['FireFlow Status'],
@@ -509,6 +921,9 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
         'field_configuration_id': field_configuration['field_configuration_id'],
         'field_configuration_scheme_id':
             field_configuration['field_configuration_scheme_id'],
+        'workflow_id': workflow['workflow_id'],
+        'workflow_name': workflow['workflow_name'],
+        'workflow_scheme_id': workflow['workflow_scheme_id'],
         'manual': [],
     }
 

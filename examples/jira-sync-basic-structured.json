@@ -46,7 +46,6 @@
       "open": "Plan",
       "plan": "Plan",
       "approve": "Approve",
-      "review": "Review",
       "create work order": "Implement",
       "implement": "Implement",
       "validate": "Validate",
@@ -87,30 +86,6 @@
         "field": "Workflow",
         "equals": "Basic",
         "transition": "Approve"
-      },
-      {
-        "status": "approved",
-        "field": "Workflow",
-        "equals": "Standard",
-        "transition": "Approve"
-      },
-      {
-        "status": "approved",
-        "field": "Workflow",
-        "equals": "Standard-With-SLA",
-        "transition": "Approve"
-      },
-      {
-        "status": "approved",
-        "field": "Workflow",
-        "equals": "Multi-Approval",
-        "transition": "Review"
-      },
-      {
-        "status": "approved",
-        "field": "Workflow",
-        "equals": "Parallel-Approval",
-        "transition": "Review"
       }
     ],
     "observed_fields": [
