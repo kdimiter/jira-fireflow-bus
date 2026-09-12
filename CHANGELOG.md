@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.10
+
+- Let the guided Linux installer discover compatible Forge apps already installed in the
+  selected Jira site and offer them alongside a create-new option.
+- Skip Node.js, Forge CLI, deployment, installation, and Forge credentials when an existing
+  production app is selected; reuse temporary Jira administrator credentials only for
+  discovery and Jira preparation.
+- Pin Jira preparation to the selected Forge App ID and prefer its production field when
+  development and production copies coexist.
+
 ## 0.3.9
 
 - Make `prepare-jira.sh` create and verify the complete Basic Change Traffic Request

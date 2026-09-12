@@ -6,7 +6,7 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 unset PYTHONPATH PYTHONHOME DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
 CONTAINER=algosec-jira-bus
-EXPECTED_IMAGE=0.3.9
+EXPECTED_IMAGE=0.3.10
 PATH_FILE=/etc/algosec-jira-bus-docker.path
 LOCK=/run/lock/algosec-jira-bus-config.lock
 MODE=--reconfigure

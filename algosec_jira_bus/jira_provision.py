@@ -2,7 +2,10 @@
 import base64
 import getpass
 import json
+import os
+from pathlib import Path
 import re
+import stat
 import urllib.error
 import uuid
 
@@ -101,6 +104,80 @@ def _managed_named(items, name, label):
         raise JiraProvisionError(
             'Existing Jira ' + label + ' with the managed name is not managed by this installer')
     return item
+
+
+def _forge_app_uuid(app_id):
+    """Return the UUID part of a Forge app ARI and reject unsafe selectors."""
+    if app_id is None:
+        return None
+    prefix = 'ari:cloud:ecosystem::app/'
+    value = app_id[len(prefix):] if app_id.startswith(prefix) else app_id
+    if not re.fullmatch(
+            r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+            r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', value):
+        raise JiraProvisionError('Invalid Forge App ID')
+    return value.lower()
+
+
+def _read_credentials(directory):
+    """Read root-owned setup credentials from an owner-only bind mount."""
+    root = Path(directory)
+    if not root.is_absolute() or root.is_symlink() or not root.is_dir():
+        raise JiraProvisionError('Jira credentials directory is unsafe')
+    root_stat = root.stat()
+    if root_stat.st_uid != os.getuid() or stat.S_IMODE(root_stat.st_mode) != 0o700:
+        raise JiraProvisionError('Jira credentials directory must be owner-only (0700)')
+    values = []
+    for name in ('email', 'token'):
+        path = root / name
+        if path.is_symlink() or not path.is_file():
+            raise JiraProvisionError('Jira credential file is missing or unsafe')
+        file_stat = path.stat()
+        if file_stat.st_uid != os.getuid() or stat.S_IMODE(file_stat.st_mode) != 0o600:
+            raise JiraProvisionError('Jira credential files must be owner-only (0600)')
+        value = path.read_text()
+        if (not value or '\n' in value or '\r' in value
+                or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value)):
+            raise JiraProvisionError(
+                'Jira credentials must be nonempty single-line values')
+        values.append(value)
+    return tuple(values)
+
+
+def _structured_forge_field(fields, app_id=None):
+    """Select one production Forge field, optionally for an explicit app."""
+    app_uuid = _forge_app_uuid(app_id)
+    matches = [
+        field for field in fields
+        if field.get('name') == 'Мережеві доступи AlgoSec'
+        and str(field.get('schema', {}).get('custom', '')).endswith(
+            '/static/algosec-network-access')
+    ]
+    if app_uuid is not None:
+        matches = [
+            field for field in matches
+            if re.search(
+                r'::extension/' + re.escape(app_uuid)
+                + r'(?:/[0-9a-f-]{36})?/static/algosec-network-access$',
+                str(field.get('schema', {}).get('custom', '')).lower())
+        ]
+    production = [
+        field for field in matches
+        if field.get('schema', {}).get('configuration', {}).get('environment')
+        == 'PRODUCTION'
+    ]
+    if len(production) == 1:
+        return production[0]
+    if len(production) > 1:
+        raise JiraProvisionError(
+            'More than one production Forge field named Мережеві доступи AlgoSec exists')
+    if app_uuid is not None:
+        raise JiraProvisionError(
+            'The selected Forge app has no unique production field in this Jira site')
+    if len(matches) == 1:
+        return matches[0]
+    raise JiraProvisionError(
+        'Install the repository Forge app; its structured field was not found uniquely')
 
 
 def _field_api(call, path, **options):
@@ -704,7 +781,7 @@ def ensure_space(call, *, apply, project_key='ALGO', project_name='AlgoSec',
 
 
 def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
-                 issue_type_name='Network Access'):
+                 issue_type_name='Network Access', forge_app_id=None):
     """Prepare project, work type, fields and project screen using an admin caller."""
     if (type(apply) is not bool
             or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,9}', project_key)
@@ -714,6 +791,7 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
             or any(ord(char) < 32 or 127 <= ord(char) <= 159
                    for char in issue_type_name)):
         raise JiraProvisionError('Invalid Jira preparation options')
+    _forge_app_uuid(forge_app_id)
     account_id = _administrator(call)
 
     created = []
@@ -773,15 +851,8 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
         return {'ready': False, 'planned': created + workflow['planned'], 'manual': []}
 
     fields = call('/rest/api/3/field')
-    forge_matches = [field for field in fields
-                     if field.get('name') == 'Мережеві доступи AlgoSec']
-    forge_matches = [field for field in forge_matches
-                     if str(field.get('schema', {}).get('custom', '')).endswith(
-                         '/static/algosec-network-access')]
-    if len(forge_matches) != 1:
-        raise JiraProvisionError(
-            'Install the repository Forge app; its structured field was not found uniquely')
-    selected = {'structured': forge_matches[0]['id']}
+    selected = {
+        'structured': _structured_forge_field(fields, forge_app_id)['id']}
     for name in RESULT_FIELDS:
         same_name = [field for field in fields if field.get('name') == name]
         valid = [field for field in same_name
@@ -935,13 +1006,20 @@ def main(argv=None):
     parser.add_argument('--project-key', '--space-key', dest='project_key')
     parser.add_argument('--project-name', '--space-name', dest='project_name')
     parser.add_argument('--work-type-name')
+    parser.add_argument('--forge-app-id',
+                        help='select the installed Forge app ARI when more than one exists')
+    parser.add_argument('--credentials-dir',
+                        help=argparse.SUPPRESS)
     parser.add_argument('--space-only', action='store_true',
                         help='create or verify only the company-managed Jira Space')
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args(argv)
     base_url = https_origin(args.base_url)
-    email = prompt('Jira administrator email: ').strip()
-    token = prompt('Jira administrator API token: ', secret=True)
+    if args.credentials_dir:
+        email, token = _read_credentials(args.credentials_dir)
+    else:
+        email = prompt('Jira administrator email: ').strip()
+        token = prompt('Jira administrator API token: ', secret=True)
     if not email or not token or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in email + token):
         raise JiraProvisionError('Jira credentials must be nonempty single-line values')
     project_key = (args.project_key if args.project_key is not None
@@ -976,7 +1054,8 @@ def main(argv=None):
     else:
         result = prepare_jira(call, apply=args.apply,
                               project_key=project_key, project_name=project_name,
-                              issue_type_name=issue_type_name)
+                              issue_type_name=issue_type_name,
+                              forge_app_id=args.forge_app_id)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get('ready') else 2
 

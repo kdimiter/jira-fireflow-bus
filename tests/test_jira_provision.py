@@ -1,4 +1,6 @@
 import copy
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -7,12 +9,108 @@ from algosec_jira_bus.jira_provision import (
     SPACE_TEMPLATE,
     TEXT_TYPE,
     _page_values,
+    _read_credentials,
+    _structured_forge_field,
     ensure_space,
     prepare_jira,
 )
 
 
 class JiraProvisionTests(unittest.TestCase):
+    def test_reads_owner_only_setup_credentials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            root.chmod(0o700)
+            (root / 'email').write_text('admin@example.test')
+            (root / 'token').write_text('synthetic-token')
+            (root / 'email').chmod(0o600)
+            (root / 'token').chmod(0o600)
+
+            self.assertEqual(
+                _read_credentials(root),
+                ('admin@example.test', 'synthetic-token'))
+
+    def test_rejects_group_readable_setup_credentials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            root.chmod(0o700)
+            (root / 'email').write_text('admin@example.test')
+            (root / 'token').write_text('synthetic-token')
+            (root / 'email').chmod(0o640)
+            (root / 'token').chmod(0o600)
+
+            with self.assertRaisesRegex(JiraProvisionError, 'owner-only'):
+                _read_credentials(root)
+
+    def test_structured_field_prefers_the_single_production_installation(self):
+        fields = [
+            {'id': 'customfield_10110', 'name': 'Мережеві доступи AlgoSec',
+             'schema': {
+                 'custom': 'ari:cloud:ecosystem::extension/dev/static/algosec-network-access',
+                 'configuration': {'environment': 'DEVELOPMENT'}}},
+            {'id': 'customfield_10218', 'name': 'Мережеві доступи AlgoSec',
+             'schema': {
+                 'custom': 'ari:cloud:ecosystem::extension/prod/static/algosec-network-access',
+                 'configuration': {'environment': 'PRODUCTION'}}},
+        ]
+
+        self.assertEqual(_structured_forge_field(fields)['id'], 'customfield_10218')
+
+    def test_structured_field_rejects_multiple_production_installations(self):
+        fields = [
+            {'id': str(index), 'name': 'Мережеві доступи AlgoSec',
+             'schema': {
+                 'custom': f'ari:cloud:ecosystem::extension/{index}/static/algosec-network-access',
+                 'configuration': {'environment': 'PRODUCTION'}}}
+            for index in (1, 2)
+        ]
+
+        with self.assertRaisesRegex(JiraProvisionError, 'More than one production'):
+            _structured_forge_field(fields)
+
+    def test_structured_field_selects_requested_production_app(self):
+        wanted = '12345678-1234-1234-1234-123456789abc'
+        fields = [
+            {'id': 'customfield_' + str(index),
+             'name': 'Мережеві доступи AlgoSec',
+             'schema': {
+                 'custom': ('ari:cloud:ecosystem::extension/' + app_id
+                            + '/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+                            + '/static/algosec-network-access'),
+                 'configuration': {'environment': 'PRODUCTION'}}}
+            for index, app_id in enumerate(
+                (wanted, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), 1)
+        ]
+
+        selected = _structured_forge_field(
+            fields, 'ari:cloud:ecosystem::app/' + wanted)
+
+        self.assertEqual(selected['id'], 'customfield_1')
+
+    def test_structured_field_rejects_unknown_requested_app(self):
+        fields = []
+        with self.assertRaisesRegex(JiraProvisionError, 'no unique production field'):
+            _structured_forge_field(
+                fields,
+                'ari:cloud:ecosystem::app/12345678-1234-1234-1234-123456789abc')
+
+    def test_structured_field_rejects_requested_development_copy(self):
+        app_id = '12345678-1234-1234-1234-123456789abc'
+        fields = [{
+            'id': 'customfield_1', 'name': 'Мережеві доступи AlgoSec',
+            'schema': {
+                'custom': ('ari:cloud:ecosystem::extension/' + app_id
+                           + '/static/algosec-network-access'),
+                'configuration': {'environment': 'DEVELOPMENT'}},
+        }]
+
+        with self.assertRaisesRegex(JiraProvisionError, 'no unique production field'):
+            _structured_forge_field(fields, app_id)
+
+    def test_structured_field_rejects_invalid_requested_app_id(self):
+        with self.assertRaisesRegex(JiraProvisionError, 'Invalid Forge App ID'):
+            _structured_forge_field([], 'not-an-app')
+
     def fixture(self, initial_project=None):
         calls = []
         project = initial_project
@@ -841,4 +939,5 @@ class JiraProvisionTests(unittest.TestCase):
         self.assertEqual(main(['--base-url', 'https://jira.example.test', '--apply']), 0)
         prepare.assert_called_once_with(
             unittest.mock.ANY, apply=True, project_key='CUSTOM',
-            project_name='Custom Space', issue_type_name='Custom Network Request')
+            project_name='Custom Space', issue_type_name='Custom Network Request',
+            forge_app_id=None)
