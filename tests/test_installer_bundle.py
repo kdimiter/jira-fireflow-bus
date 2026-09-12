@@ -268,7 +268,7 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
         self.helper = self.base / 'install-docker.sh'
         self.helper.write_text(
             '#!/bin/sh\nprintf "%s\\n" "$@" > "$DOCKER_INSTALLER_TEST_LOG"\n')
-        self.bundle = self.base / 'algosec-jira-bus-0.3.7-docker-amd64.run'
+        self.bundle = self.base / 'algosec-jira-bus-0.3.8-docker-amd64.run'
         docker_builder.build(self.image, self.helper, self.bundle)
 
     def run_bundle(self, *args, env=None):
@@ -291,11 +291,27 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
             'prepare-fireflow.sh',
             'prepare-jira.sh',
             'create-jira-space.sh',
+            'guided-linux-setup.sh',
+            'setup-forge.sh',
+            'forge-app.tar.gz',
         })
         self.assertEqual((target / 'bus_conf').read_bytes(),
                          (ROOT / 'packaging/docker/bus_conf').read_bytes())
         self.assertEqual((target / 'bus_update').read_bytes(),
                          (ROOT / 'packaging/docker/bus_update').read_bytes())
+        self.assertEqual((target / 'guided-linux-setup.sh').read_bytes(),
+                         (ROOT / 'scripts/guided-linux-setup.sh').read_bytes())
+        with tarfile.open(target / 'forge-app.tar.gz', 'r:gz') as archive:
+            names = set(archive.getnames())
+        self.assertIn('forge/manifest.yml', names)
+        self.assertIn('forge/src/edit.tsx', names)
+        self.assertFalse(any('node_modules' in name for name in names))
+
+    def test_help_advertises_one_guided_linux_workflow(self):
+        result = self.run_bundle('--help')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--guided', result.stdout)
+        self.assertIn('Forge, Jira and the Docker bus', result.stdout)
 
     def test_one_file_installer_bootstraps_supported_linux_dependencies(self):
         header = self.bundle.read_bytes().split(docker_builder.MARKER, 1)[0].decode()
