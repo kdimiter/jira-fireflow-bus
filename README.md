@@ -23,6 +23,10 @@ runtime dependencies; the server does not clone the repository, build an image, 
 Python packages.
 
 ```sh
+# Use a dedicated download directory on a clean host:
+sudo install -d -o "$USER" -g "$(id -gn)" /opt/algosec-install
+cd /opt/algosec-install
+
 # Download the ready installer and checksum from the latest release:
 curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
 curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
@@ -70,6 +74,11 @@ deployment. Runtime Jira and FireFlow secrets remain in the private container co
 Upgrade an existing installer-managed container without entering or rewriting its secrets:
 
 ```sh
+# Download the new installer and checksum before every upgrade:
+cd /opt/algosec-install
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
+
 sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
 sudo sh algosec-jira-bus-latest-docker-amd64.run --upgrade
 
@@ -282,6 +291,9 @@ flowchart LR
 На сервері не потрібно клонувати Git-репозиторій, збирати образ або встановлювати Python-пакети.
 
 ```sh
+sudo install -d -o "$USER" -g "$(id -gn)" /opt/algosec-install
+cd /opt/algosec-install
+
 curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
 curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
 
@@ -347,6 +359,10 @@ sudo bus_conf --jira-sync
 Для переходу на останній реліз без повторного введення або перезапису секретів:
 
 ```sh
+cd /opt/algosec-install
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
+
 sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
 sudo sh algosec-jira-bus-latest-docker-amd64.run --upgrade
 ```

@@ -210,6 +210,9 @@ daemon. Команди відповідають поточним офіційн�
 У каталозі із завантаженими файлами:
 
 ```sh
+sudo install -d -o "$USER" -g "$(id -gn)" /opt/algosec-install
+cd /opt/algosec-install
+
 curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
 curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
 sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
@@ -250,10 +253,14 @@ API email/token, ASMS URL та FireFlow API user/password. Після успіш
 
 ### 2.3. Оновлення живого container без повторного введення секретів
 
-Для оновлення наявної інсталяції, створеної цим installer, завантажте новий Docker `.run`
-і сусідній `.sha256`, потім виконайте:
+Для оновлення наявної інсталяції, створеної цим installer, спочатку завантажте актуальний
+Docker `.run` і сусідній `.sha256`, потім перевірте checksum і запустіть upgrade:
 
 ```sh
+cd /opt/algosec-install
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run
+curl -fLO https://github.com/kdimiter/jira-fireflow-bus/releases/latest/download/algosec-jira-bus-latest-docker-amd64.run.sha256
+
 sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
 sudo sh algosec-jira-bus-latest-docker-amd64.run --upgrade
 ```
