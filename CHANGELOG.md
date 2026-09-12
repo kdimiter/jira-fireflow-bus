@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.7
+
+- Let Jira preparation prompt for the Space key, Space name, and work type name when they
+  are not supplied as command-line options.
+- Add `--work-type-name` so deployments can select a unique standard work type instead of
+  failing when the tenant contains duplicate `Network Access` names.
+
 ## 0.3.6
 
 - Accept Jira Cloud project-name validation responses returned as either a documented JSON
