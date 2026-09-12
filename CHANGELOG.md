@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.12
+
+- Persist valid Forge field drafts directly through the Jira submit bridge in create-like dialogs and keep standard blur submission enabled, so Jira validates the current structured value when Create is clicked.
+- Load the edit context once through `view.getContext()` to avoid stale or ambiguous UI Kit context shapes.
+
 ## 0.3.11
 
 - Read the Jira UI Kit custom-field context from both supported context shapes so the create

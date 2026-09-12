@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Box, Button, Heading, Inline, Label, SectionMessage, Select, Stack, Text, TextArea, Textfield, useProductContext } from '@forge/react';
+import React, { useEffect, useRef, useState } from 'react';
+import ForgeReconciler, { Box, Button, Heading, Inline, Label, SectionMessage, Select, Stack, Text, TextArea, Textfield } from '@forge/react';
 import { CustomFieldEdit } from '@forge/react/jira';
 import { view } from '@forge/bridge';
-import { Address, AddressKind, blankLine, blankRequest, duplicateRow, MAX_ROWS, readForgeFieldContext, removeRow, RequestValue, TrafficLine, validateRequest } from './model';
+import { Address, AddressKind, blankLine, blankRequest, duplicateRow, MAX_ROWS, readForgeFieldContext, removeRow, RequestValue, shouldPersistDraft, TrafficLine, validateRequest } from './model';
 
 const kinds = [{ label: 'IP-адреса', value: 'ip' }, { label: 'Hostname', value: 'hostname' },
   { label: 'Діапазон адрес', value: 'range' }, { label: 'Підмережа / маска', value: 'subnet' }];
@@ -52,14 +52,16 @@ function RowEditor({ row, index, change, duplicate, remove, canDelete, canAdd }:
   </Box>;
 }
 function Edit() {
-  const context = useProductContext();
   const [value, setValue] = useState<RequestValue | null>(null);
   const [loadError, setLoadError] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [renderContext, setRenderContext] = useState('issue-view');
+  const [renderContext, setRenderContext] = useState('');
+  const submitChain = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
-    if (context) {
+    let active = true;
+    view.getContext().then(context => {
+      if (!active) return;
       try {
         const { fieldValue: existing, renderContext: currentRenderContext } = readForgeFieldContext(context);
         setRenderContext(currentRenderContext);
@@ -67,8 +69,28 @@ function Edit() {
       } catch {
         setLoadError('Не вдалося прочитати поле або його формат не підтримується. Оновіть сторінку чи зверніться до адміністратора; наявні дані не перезаписано.');
       }
-    }
-  }, [context]);
+    }).catch(() => {
+      if (active) setLoadError('Не вдалося отримати контекст Jira. Оновіть сторінку чи зверніться до адміністратора.');
+    });
+    return () => { active = false; };
+  }, []);
+  const submitPayload = (payload: RequestValue) => {
+    const pending = submitChain.current.then(() => view.submit(payload));
+    submitChain.current = pending.catch(() => undefined);
+    return pending;
+  };
+  useEffect(() => {
+    if (!value || !shouldPersistDraft(renderContext)) return;
+    let payload: RequestValue;
+    try { payload = validateRequest(value); } catch { return; }
+    const timer = setTimeout(() => {
+      setError('');
+      void submitPayload(payload).catch(e => {
+        setError(e instanceof Error ? e.message : 'Не вдалося передати значення до Jira. Повторіть спробу.');
+      });
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [value, renderContext]);
   if (loadError) return <SectionMessage appearance="error"><Text>{loadError}</Text></SectionMessage>;
   if (!value) return <Text>Завантаження доступів…</Text>;
   const submit = async () => {
@@ -76,14 +98,14 @@ function Edit() {
     try {
       const payload = validateRequest(value);
       setSaving(true); setError('');
-      await view.submit(payload);
+      await submitPayload(payload);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не вдалося зберегти. Повторіть спробу.');
       throw e;
     }
     finally { setSaving(false); }
   };
-  return <CustomFieldEdit onSubmit={submit} disableSubmitOnEnter disableSubmitOnBlur={renderContext === 'issue-view'}>
+  return <CustomFieldEdit onSubmit={submit} disableSubmitOnEnter>
     <Stack space="space.200">
       <Text>Один рядок — один напрямок доступу. Діапазон або підмережа залишаються одним значенням.</Text>
       <Label labelFor="justification">Обґрунтування</Label>
