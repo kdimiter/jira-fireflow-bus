@@ -53,6 +53,17 @@ class GuidedForgeSelectionTests(unittest.TestCase):
             re.compile(r'prepare-jira\.sh.*--forge-app-id\s+"\$APP_ID"', re.DOTALL),
         )
 
+    def test_existing_production_app_can_be_upgraded_without_registering_a_duplicate(self):
+        self.assertIn("upgrade 'Deploy the bundled Forge app update'", self.script)
+        self.assertRegex(
+            self.script,
+            re.compile(
+                r'FORGE_EXISTING_ACTION.*?upgrade\).*?APP_MODE=existing'
+                r'.*?INSTALL_MODE=upgrade.*?SKIP_FORGE=0',
+                re.DOTALL,
+            ),
+        )
+
     def test_does_not_depend_on_a_nonexistent_forge_apps_list_command(self):
         self.assertNotIn('forge apps list', self.script)
 
