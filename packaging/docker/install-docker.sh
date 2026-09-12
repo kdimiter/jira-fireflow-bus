@@ -6,10 +6,11 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ARCHIVE="$HERE/algosec-jira-bus-docker-amd64.tar.gz"
 IMAGE_SHA256=""
 DATA=/opt/algosec-jira-docker
-IMAGE=algosec-jira-bus:0.3.9
+IMAGE=algosec-jira-bus:0.3.10
 CONFIG_FILE=""
 SECRETS_FILE=""
 CA_FILE=""
+FORGE_APP_ID=""
 PREPARE_ONLY=0
 UPGRADE_ONLY=0
 BUS_CONF_SOURCE="$HERE/bus_conf"
@@ -32,12 +33,17 @@ while [ "$#" -gt 0 ]; do
         --config-file) [ "$#" -ge 2 ] || exit 2; CONFIG_FILE=$2; shift 2;;
         --secrets-file) [ "$#" -ge 2 ] || exit 2; SECRETS_FILE=$2; shift 2;;
         --ca-file) [ "$#" -ge 2 ] || exit 2; CA_FILE=$2; shift 2;;
+        --forge-app-id) [ "$#" -ge 2 ] || exit 2; FORGE_APP_ID=$2; shift 2;;
         --prepare-only) PREPARE_ONLY=1; shift;;
         --upgrade) UPGRADE_ONLY=1; shift;;
         --help) echo 'Usage: sh install-docker.sh --image-archive FILE --image-sha256 HEX [--upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]'; exit 0;;
         *) echo "Unknown option: $1" >&2; exit 2;;
     esac
 done
+if [ -n "$FORGE_APP_ID" ]; then
+    printf '%s\n' "$FORGE_APP_ID" | grep -Eq '^ari:cloud:ecosystem::app/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' \
+        || { echo 'Invalid Forge App ID.' >&2; exit 2; }
+fi
 [ "$(uname -s)" = Linux ] || { echo 'Linux host required.' >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || { echo 'Run with sudo to prepare private persistent directories.' >&2; exit 1; }
 case "$DATA" in /*) ;; *) echo 'Data directory must be absolute.' >&2; exit 1;; esac
@@ -352,7 +358,7 @@ case "$ARCH" in x86_64|amd64) ;; *) echo "This image requires an amd64 Docker ho
 docker load -i "$STAGED_ARCHIVE"
 docker image inspect "$IMAGE" >/dev/null
 IMAGE_LABEL=$(docker image inspect --format '{{index .Config.Labels "org.algosec.jira-bus.image"}}' "$IMAGE")
-[ "$IMAGE_LABEL" = 0.3.9 ] || { echo 'Loaded archive is not the expected Jira FireFlow bus image.' >&2; exit 1; }
+[ "$IMAGE_LABEL" = 0.3.10 ] || { echo 'Loaded archive is not the expected Jira FireFlow bus image.' >&2; exit 1; }
 IMAGE_PLATFORM=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")
 [ "$IMAGE_PLATFORM" = linux/amd64 ] || { echo "Loaded image has unexpected platform: $IMAGE_PLATFORM" >&2; exit 1; }
 DATA=$(validate_data_dir "$DATA" initialize)
@@ -567,13 +573,15 @@ else
         docker stop algosec-jira-bus >/dev/null
     fi
     echo 'Enter Jira and ASMS settings in the wizard. Existing saved configuration is preserved.'
+    set -- --source /opt/algosec-jira-bus/setup-source --container
+    [ -z "$FORGE_APP_ID" ] || set -- "$@" --forge-app-id "$FORGE_APP_ID"
     docker run --rm -it --user 10001:10001 --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
         --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
         --memory 512m --memory-swap 512m \
         -v "$DATA/config:/etc/algosec-jira-bus:$MOUNT_RW" \
         -v "$DATA/state:/var/lib/algosec-jira-bus:$MOUNT_RW" \
         --entrypoint python "$IMAGE" /opt/algosec-jira-bus/setup-source/scripts/setup_wizard.py \
-        --source /opt/algosec-jira-bus/setup-source --container
+        "$@"
 fi
 # A failed wizard exits above and leaves an existing instance stopped for inspection.
 if docker container inspect algosec-jira-bus >/dev/null 2>&1; then docker rm algosec-jira-bus >/dev/null; fi

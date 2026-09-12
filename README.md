@@ -52,9 +52,13 @@ sudo docker logs --tail 100 algosec-jira-bus
 ![Ready Docker installer with stable latest-release links](docs/screenshots/21-docker-installer.png)
 
 `--guided` is the simplest installation path for a new Linux server. It installs missing
-Docker, Git, terminal-dialog and build prerequisites; installs Node.js 22 and Forge CLI under
-the selected non-root operator; deploys or reuses one Forge App; and prepares a company-managed
-Jira Space with the chosen standard work type. That work type receives the Forge Basic network
+Docker and terminal-dialog prerequisites, then reads the compatible Forge apps already installed
+in the selected Jira site. The menu identifies each candidate by environment, Jira field ID and
+Forge App UUID, and also offers **Register and install a new Forge app**. Selecting an existing
+production app skips Node.js, Forge CLI, Forge credentials, deployment and installation. The
+wizard pins Jira preparation to that exact App ID. The create-new path installs Node.js 22 and
+Forge CLI under the selected non-root operator, registers and installs the app, and then prepares
+a company-managed Jira Space with the chosen standard work type. That work type receives the Forge Basic network
 request field, the optional FireFlow Request ID, FireFlow Status and FireFlow Owner result
 fields, and dedicated work type, screen, field-configuration and workflow schemes. The dedicated
 work type scheme contains only the selected integration type. The workflow follows
@@ -66,8 +70,10 @@ To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
 
 `Rejected` and `Cancelled` are terminal alternatives. `Review` is deliberately absent because
 it belongs to the Multi-Approval and Parallel-Approval FireFlow workflows, not Basic. The
-wizard then validates and starts the Docker bus. Forge credentials are used only during
-deployment. Runtime Jira and FireFlow secrets remain in the private container configuration.
+wizard then validates and starts the Docker bus. Jira administrator credentials are entered once,
+kept only in owner-only temporary files for discovery and preparation, and deleted afterward.
+Forge credentials are requested only when deployment is needed. Runtime Jira and FireFlow secrets
+remain in the private container configuration.
 
 ![Structured Jira network-access request with RFC 5737 example addresses](docs/screenshots/23-structured-network-request.png)
 
@@ -230,20 +236,20 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.3.9-linux.run
+  --output dist/algosec-jira-bus-0.3.10-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.3.9-linux.run \
-  dist/algosec-jira-bus-0.3.9-docker-amd64.tar.gz
+  dist/algosec-jira-bus-0.3.10-linux.run \
+  dist/algosec-jira-bus-0.3.10-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
-  --image dist/algosec-jira-bus-0.3.9-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.3.9-docker-amd64.run
+  --image dist/algosec-jira-bus-0.3.10-docker-amd64.tar.gz \
+  --output dist/algosec-jira-bus-0.3.10-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.3.9 --image algosec-jira-bus:0.3.9
+  --directory dist --version 0.3.10 --image algosec-jira-bus:0.3.10
 
 # Publish these stable aliases in every release so README download URLs never change:
-cp dist/algosec-jira-bus-0.3.9-docker-amd64.run \
+cp dist/algosec-jira-bus-0.3.10-docker-amd64.run \
   dist/algosec-jira-bus-latest-docker-amd64.run
-cp dist/algosec-jira-bus-0.3.9-linux.run \
+cp dist/algosec-jira-bus-0.3.10-linux.run \
   dist/algosec-jira-bus-latest-linux.run
 (cd dist && shasum -a 256 algosec-jira-bus-latest-docker-amd64.run \
   > algosec-jira-bus-latest-docker-amd64.run.sha256)
@@ -306,15 +312,20 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 Режим `--guided` відкриває єдиний діалоговий майстер, який:
 
 - встановлює відсутні системні залежності й Docker;
-- встановлює Node.js 22 та Forge CLI під вибраним непривілейованим Linux-користувачем;
-- реєструє новий або повторно використовує наявний Forge App ID;
-- розгортає Forge-застосунок у вибраному Jira tenant;
+- читає із Jira перелік сумісних Forge-застосунків і показує їхнє середовище, field ID та App UUID;
+- дає вибрати встановлений production-застосунок або створити новий;
+- для встановленого production-застосунку пропускає Node.js, Forge CLI, Forge token, deploy та install;
+- лише для нового або ще не production-застосунку встановлює Node.js 22 і Forge CLI під
+  вибраним непривілейованим Linux-користувачем та виконує deploy/install;
 - створює або повторно використовує company-managed Jira Space;
 - створює вибраний standard work type із Forge-формою Basic network request;
 - додає необов'язкові поля FireFlow Request ID, FireFlow Status і FireFlow Owner;
 - створює окремі work type, screen, field-configuration і workflow schemes;
 - запитує Jira URL, email, API token, FireFlow URL, API account і режим TLS;
 - запускає connectivity doctor і лише після успішної перевірки активує контейнер.
+
+Jira administrator email і token вводяться один раз. Майстер тримає їх лише у тимчасових
+owner-only файлах для пошуку Forge-застосунків і підготовки Jira, після чого видаляє.
 
 Структуроване Forge-поле стає обов'язковим лише для вибраного мережевого work type.
 Поля FireFlow Request ID, Status і Owner залишаються видимими та необов'язковими. Окрема work

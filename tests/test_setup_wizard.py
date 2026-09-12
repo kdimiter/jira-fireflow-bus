@@ -14,6 +14,37 @@ spec.loader.exec_module(wizard)
 
 
 class SetupWizardTests(unittest.TestCase):
+    def test_guided_app_id_selects_its_production_structured_field(self):
+        wanted = '12345678-1234-1234-1234-123456789abc'
+        fields = [
+            {'id': 'customfield_1', 'name': 'Мережеві доступи AlgoSec',
+             'schema': {'type': 'object',
+                        'custom': ('ari:cloud:ecosystem::extension/' + app_id
+                                   + '/static/algosec-network-access'),
+                        'configuration': {'environment': environment}}}
+            for app_id, environment in (
+                ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'DEVELOPMENT'),
+                (wanted, 'PRODUCTION'))
+        ]
+
+        selected = wizard.choose_structured_field(
+            fields, 'ari:cloud:ecosystem::app/' + wanted)
+
+        self.assertEqual(selected, 'customfield_1')
+
+    def test_guided_app_id_refuses_a_development_only_field(self):
+        app_id = '12345678-1234-1234-1234-123456789abc'
+        fields = [{
+            'id': 'customfield_1', 'name': 'Мережеві доступи AlgoSec',
+            'schema': {'type': 'object',
+                       'custom': ('ari:cloud:ecosystem::extension/' + app_id
+                                  + '/static/algosec-network-access'),
+                       'configuration': {'environment': 'DEVELOPMENT'}},
+        }]
+
+        with self.assertRaisesRegex(ValueError, 'no unique production field'):
+            wizard.choose_structured_field(fields, app_id)
+
     def test_fresh_reverse_status_map_matches_the_basic_workflow(self):
         self.assertEqual(wizard.DEFAULT_JIRA_STATUS_MAP, {
             'To Do': 'open', 'Done': 'resolved',

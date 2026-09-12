@@ -228,6 +228,22 @@ def choose_field(fields, name, kind):
     return value
 
 
+def choose_structured_field(fields, forge_app_id=None):
+    """Use the production field for the app selected by guided provisioning."""
+    if forge_app_id is None:
+        return choose_field(fields, 'Мережеві доступи AlgoSec', 'object')
+    from algosec_jira_bus.jira_provision import (
+        JiraProvisionError, _structured_forge_field)
+    try:
+        field = _structured_forge_field(fields, forge_app_id)
+    except JiraProvisionError as error:
+        raise ValueError(str(error)) from None
+    if field.get('schema', {}).get('type') != 'object':
+        raise ValueError('Selected Forge field has the wrong Jira type')
+    print('Мережеві доступи AlgoSec:', field['id'])
+    return field['id']
+
+
 def validate_worktype(project_data, worktype):
     if not any(str(t.get('id')) == worktype and not t.get('subtask', False) for t in project_data.get('issueTypes', [])):
         raise ValueError('Work type must belong to the selected project and cannot be a subtask')
@@ -434,6 +450,8 @@ def main():
                         help='Capture and validate a replacement FireFlow certificate pin')
     parser.add_argument('--jira-sync', action='store_true',
                         help='Configure Jira to FireFlow status and comment synchronization')
+    parser.add_argument('--forge-app-id',
+                        help='use the selected production Forge app field')
     args = parser.parse_args()
     if sys.platform != 'linux' or (not args.container and os.geteuid() != 0):
         raise ValueError('Run on Linux as root')
@@ -486,7 +504,7 @@ def main():
     worktype = ask('Network Access work type numeric ID')
     validate_worktype(project_data, worktype)
     available = jira.fields()
-    fields = {'structured': choose_field(available, 'Мережеві доступи AlgoSec', 'object')}
+    fields = {'structured': choose_structured_field(available, args.forge_app_id)}
     for k, name in [('id', 'FireFlow Request ID'), ('status', 'FireFlow Status'), ('owner', 'FireFlow Owner')]:
         fields[k] = choose_field(available, name, 'string')
     existing_ca_file = (existing.get('fireflow', {}).get('ca_file')
