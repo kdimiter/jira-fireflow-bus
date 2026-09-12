@@ -6,7 +6,7 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ARCHIVE="$HERE/algosec-jira-bus-docker-amd64.tar.gz"
 IMAGE_SHA256=""
 DATA=/opt/algosec-jira-docker
-IMAGE=algosec-jira-bus:0.3.11
+IMAGE=algosec-jira-bus:0.3.12
 CONFIG_FILE=""
 SECRETS_FILE=""
 CA_FILE=""
@@ -358,7 +358,7 @@ case "$ARCH" in x86_64|amd64) ;; *) echo "This image requires an amd64 Docker ho
 docker load -i "$STAGED_ARCHIVE"
 docker image inspect "$IMAGE" >/dev/null
 IMAGE_LABEL=$(docker image inspect --format '{{index .Config.Labels "org.algosec.jira-bus.image"}}' "$IMAGE")
-[ "$IMAGE_LABEL" = 0.3.11 ] || { echo 'Loaded archive is not the expected Jira FireFlow bus image.' >&2; exit 1; }
+[ "$IMAGE_LABEL" = 0.3.12 ] || { echo 'Loaded archive is not the expected Jira FireFlow bus image.' >&2; exit 1; }
 IMAGE_PLATFORM=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")
 [ "$IMAGE_PLATFORM" = linux/amd64 ] || { echo "Loaded image has unexpected platform: $IMAGE_PLATFORM" >&2; exit 1; }
 DATA=$(validate_data_dir "$DATA" initialize)

@@ -268,7 +268,7 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
         self.helper = self.base / 'install-docker.sh'
         self.helper.write_text(
             '#!/bin/sh\nprintf "%s\\n" "$@" > "$DOCKER_INSTALLER_TEST_LOG"\n')
-        self.bundle = self.base / 'algosec-jira-bus-0.3.11-docker-amd64.run'
+        self.bundle = self.base / 'algosec-jira-bus-0.3.12-docker-amd64.run'
         docker_builder.build(self.image, self.helper, self.bundle)
 
     def run_bundle(self, *args, env=None):

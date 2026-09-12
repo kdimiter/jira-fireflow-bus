@@ -238,20 +238,20 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.3.11-linux.run
+  --output dist/algosec-jira-bus-0.3.12-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.3.11-linux.run \
-  dist/algosec-jira-bus-0.3.11-docker-amd64.tar.gz
+  dist/algosec-jira-bus-0.3.12-linux.run \
+  dist/algosec-jira-bus-0.3.12-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
-  --image dist/algosec-jira-bus-0.3.11-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.3.11-docker-amd64.run
+  --image dist/algosec-jira-bus-0.3.12-docker-amd64.tar.gz \
+  --output dist/algosec-jira-bus-0.3.12-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.3.11 --image algosec-jira-bus:0.3.11
+  --directory dist --version 0.3.12 --image algosec-jira-bus:0.3.12
 
 # Publish these stable aliases in every release so README download URLs never change:
-cp dist/algosec-jira-bus-0.3.11-docker-amd64.run \
+cp dist/algosec-jira-bus-0.3.12-docker-amd64.run \
   dist/algosec-jira-bus-latest-docker-amd64.run
-cp dist/algosec-jira-bus-0.3.11-linux.run \
+cp dist/algosec-jira-bus-0.3.12-linux.run \
   dist/algosec-jira-bus-latest-linux.run
 (cd dist && shasum -a 256 algosec-jira-bus-latest-docker-amd64.run \
   > algosec-jira-bus-latest-docker-amd64.run.sha256)

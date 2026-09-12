@@ -39,7 +39,7 @@ Guided installer сам перевіряє, чи встановлений сум
 пропускається. Наведений нижче ручний спосіб потрібен лише без `--guided`:
 
 ```sh
-git clone --branch v0.3.11 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.12 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 cd forge
 npm ci --ignore-scripts
@@ -76,7 +76,7 @@ Forge app.
 На адміністративній робочій станції потрібні Node.js 22, npm, Forge CLI та акаунт із правами розгортання Forge і встановлення застосунку на потрібний Jira site. Runtime API-token шини для цього не використовується.
 
 ```sh
-git clone --branch v0.3.11 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.12 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 npm install --global @forge/cli
 sh scripts/setup-forge.sh
