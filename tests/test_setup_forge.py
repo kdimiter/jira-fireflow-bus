@@ -93,6 +93,14 @@ class ForgeSetupTests(unittest.TestCase):
         self.assertIn('Invalid Jira hostname', result.stderr)
         self.assertFalse(self.log.exists())
 
+    def test_work_directory_outside_user_home_is_rejected(self):
+        self.env['ALGOSEC_FORGE_WORKDIR'] = str(Path(self.temp.name) / 'outside')
+        result = self.run_setup('--site', 'tenant.atlassian.net',
+                                '--install-mode', 'new')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('must be inside the user home', result.stderr)
+        self.assertFalse(self.log.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

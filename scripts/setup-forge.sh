@@ -56,6 +56,7 @@ case "$(uname -s)" in Linux|Darwin) ;; *) echo 'Forge setup requires Linux or ma
     exit 1
 }
 [ -d "$SOURCE/forge" ] || { echo 'Bundled Forge source is missing.' >&2; exit 1; }
+case "$DEST" in "$HOME"/*) ;; *) echo 'Forge work directory must be inside the user home.' >&2; exit 1;; esac
 case "$SITE" in *://*|*/*|*:*|*[!a-zA-Z0-9.-]*) echo 'Invalid Jira hostname.' >&2; exit 1;; esac
 case "$ENVIRONMENT" in production|staging|development) ;; *) echo 'Invalid Forge environment.' >&2; exit 1;; esac
 case "$INSTALL_MODE" in ''|new|upgrade) ;; *) echo 'Install mode must be new or upgrade.' >&2; exit 1;; esac
@@ -71,7 +72,7 @@ node_supported() {
     [ "$MAJOR" = 22 ] || [ "$MAJOR" = 24 ]
 }
 
-if ! node_supported; then
+if ! node_supported || ! command -v npm >/dev/null 2>&1; then
     [ "$INSTALL_NODE" = 1 ] || {
         echo 'Install Node.js 22 LTS first or rerun with --install-node.' >&2
         exit 1
@@ -100,6 +101,7 @@ PROFILE
 fi
 
 node_supported || { echo 'Forge requires Node.js 22 or 24.' >&2; exit 1; }
+command -v npm >/dev/null 2>&1 || { echo 'npm installation failed.' >&2; exit 1; }
 unset NODE_ENV
 if ! command -v forge >/dev/null 2>&1; then
     [ "$INSTALL_NODE" = 1 ] || { echo 'Install Forge CLI: npm install -g @forge/cli' >&2; exit 1; }
@@ -135,7 +137,14 @@ if [ ! -d "$DEST" ]; then
 else
     SAVED=$(mktemp -d "$HOME/.algosec-forge-save.XXXXXX")
     NEXT=$DEST.new.$$
-    trap 'rm -rf "$SAVED" "$NEXT"' 0 HUP INT TERM
+    OLD=
+    cleanup_sync() {
+        if [ -n "$OLD" ] && [ -d "$OLD" ]; then
+            if [ -d "$DEST" ]; then rm -rf "$OLD"; else mv "$OLD" "$DEST"; fi
+        fi
+        rm -rf "$SAVED" "$NEXT"
+    }
+    trap cleanup_sync 0 HUP INT TERM
     [ ! -L "$DEST/manifest.yml" ] || { echo 'Refusing a symbolic-link Forge manifest.' >&2; exit 1; }
     [ ! -f "$DEST/manifest.yml" ] || cp "$DEST/manifest.yml" "$SAVED/manifest.yml"
     [ ! -f "$DEST/.algosec-registered" ] || cp "$DEST/.algosec-registered" "$SAVED/registered"
@@ -147,6 +156,7 @@ else
     mv "$DEST" "$OLD"
     if mv "$NEXT" "$DEST"; then
         rm -rf "$OLD" "$SAVED"
+        OLD=
         trap - 0 HUP INT TERM
     else
         mv "$OLD" "$DEST"

@@ -31,10 +31,10 @@ done
 case "$ID" in
     ubuntu|debian)
         apt-get update
-        apt-get install -y ca-certificates git build-essential whiptail
+        apt-get install -y ca-certificates curl git build-essential whiptail xz-utils
         ;;
     rhel|rocky|almalinux)
-        dnf -y install ca-certificates git gcc gcc-c++ make newt
+        dnf -y install ca-certificates curl git gcc gcc-c++ make newt xz
         ;;
     *) echo "Unsupported Linux distribution for guided dialogs: $ID" >&2; exit 1;;
 esac
