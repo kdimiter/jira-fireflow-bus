@@ -134,6 +134,34 @@ class JiraProvisionTests(unittest.TestCase):
         self.assertIn(('/rest/api/3/issuetype', 'POST'), mutations)
         self.assertNotIn('token', str(result).lower())
 
+    def test_custom_work_type_name_avoids_global_name_collisions(self):
+        base_call, calls = self.fixture({
+            'id': '10001', 'key': 'ALGO', 'name': 'AlgoSec',
+            'issueTypes': [], 'simplified': False})
+
+        def call(path, **options):
+            if path == '/rest/api/3/issuetype' and options.get('method') != 'POST':
+                return [
+                    {'id': '10020', 'name': 'Network Access', 'subtask': False},
+                    {'id': '10021', 'name': 'Network Access', 'subtask': False},
+                ]
+            return base_call(path, **options)
+
+        result = prepare_jira(
+            call, apply=True, issue_type_name='TESTBUS Network Access')
+
+        created = next(options['body'] for path, options in calls
+                       if path == '/rest/api/3/issuetype'
+                       and options.get('method') == 'POST')
+        self.assertEqual(created['name'], 'TESTBUS Network Access')
+        self.assertEqual(result['issue_type_name'], 'TESTBUS Network Access')
+
+    def test_custom_work_type_name_is_validated(self):
+        call, _calls = self.fixture()
+        for value in ('', ' Network Access', 'Network Access\nInjected', 'x' * 61):
+            with self.subTest(value=value), self.assertRaises(JiraProvisionError):
+                prepare_jira(call, apply=True, issue_type_name=value)
+
     def test_dry_run_stops_before_first_mutation(self):
         call, calls = self.fixture()
         result = prepare_jira(call, apply=False)
@@ -175,3 +203,16 @@ class JiraProvisionTests(unittest.TestCase):
                         '--space-name', 'AlgoSec Test Space'])
         self.assertEqual(stopped, 2)
         request_json_string.assert_called_once()
+
+    @patch('algosec_jira_bus.jira_provision.prepare_jira')
+    @patch('algosec_jira_bus.jira_provision.prompt', side_effect=[
+        'admin@example.test', 'token-value', 'CUSTOM', 'Custom Space',
+        'Custom Network Request'])
+    def test_cli_prompts_for_space_and_work_type_names(self, _prompt, prepare):
+        from algosec_jira_bus.jira_provision import main
+
+        prepare.return_value = {'ready': True}
+        self.assertEqual(main(['--base-url', 'https://jira.example.test', '--apply']), 0)
+        prepare.assert_called_once_with(
+            unittest.mock.ANY, apply=True, project_key='CUSTOM',
+            project_name='Custom Space', issue_type_name='Custom Network Request')

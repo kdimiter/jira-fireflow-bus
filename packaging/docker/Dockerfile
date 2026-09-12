@@ -1,11 +1,11 @@
 FROM python:3.11.16-alpine3.23@sha256:7671276afa87f02dd3ab1b61544d4bc41914e067d065676a4306c278b4fa59b4
 ARG VCS_REF=unknown
-LABEL org.algosec.jira-bus.image="0.3.6" \
+LABEL org.algosec.jira-bus.image="0.3.7" \
       org.opencontainers.image.title="Jira-FireFlow Bus" \
       org.opencontainers.image.description="Outbound-only Jira Cloud to AlgoSec FireFlow integration" \
       org.opencontainers.image.source="https://github.com/kdimiter/jira-fireflow-bus/" \
       org.opencontainers.image.revision="$VCS_REF" \
-      org.opencontainers.image.version="0.3.6" \
+      org.opencontainers.image.version="0.3.7" \
       org.opencontainers.image.licenses="Apache-2.0"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /opt/algosec-jira-bus/setup-source

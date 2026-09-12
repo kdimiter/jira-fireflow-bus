@@ -83,9 +83,16 @@ def ensure_space(call, *, apply, project_key='ALGO', project_name='AlgoSec',
             'project_id': _identifier(project.get('id'), 'project ID')}
 
 
-def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec'):
+def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
+                 issue_type_name='Network Access'):
     """Prepare project, work type, fields and project screen using an admin caller."""
-    if type(apply) is not bool or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,9}', project_key):
+    if (type(apply) is not bool
+            or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,9}', project_key)
+            or not isinstance(issue_type_name, str)
+            or not 1 <= len(issue_type_name) <= 60
+            or issue_type_name != issue_type_name.strip()
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159
+                   for char in issue_type_name)):
         raise JiraProvisionError('Invalid Jira preparation options')
     account_id = _administrator(call)
 
@@ -104,17 +111,19 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec'):
         raise JiraProvisionError('Use a company-managed Jira project')
 
     issue_types = call('/rest/api/3/issuetype')
-    matches = [item for item in issue_types if item.get('name') == 'Network Access'
+    matches = [item for item in issue_types if item.get('name') == issue_type_name
                and item.get('subtask') is not True]
     if len(matches) > 1:
-        raise JiraProvisionError('More than one Network Access issue type exists')
+        raise JiraProvisionError(
+            'More than one work type named %r exists; choose a unique --work-type-name'
+            % issue_type_name)
     if not matches:
         if not apply:
-            return {'ready': False, 'planned': created + ['issue-type:Network Access'],
+            return {'ready': False, 'planned': created + ['issue-type:' + issue_type_name],
                     'manual': ['Install the Forge app before apply']}
         issue_type = call('/rest/api/3/issuetype', method='POST', body={
-            'name': 'Network Access', 'description': MARKER, 'type': 'standard'})
-        created.append('issue-type:Network Access')
+            'name': issue_type_name, 'description': MARKER, 'type': 'standard'})
+        created.append('issue-type:' + issue_type_name)
     else:
         issue_type = matches[0]
     issue_type_id = _identifier(issue_type.get('id'), 'issue type ID')
@@ -238,7 +247,7 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec'):
     # To Do / In Progress / Done states; creating another workflow would add no value.
     return {
         'ready': bool(apply), 'project_key': project_key, 'project_id': project_id,
-        'issue_type_id': issue_type_id,
+        'issue_type_id': issue_type_id, 'issue_type_name': issue_type_name,
         'fields': {'structured': selected['structured'],
                    'id': selected['FireFlow Request ID'],
                    'status': selected['FireFlow Status'],
@@ -253,8 +262,9 @@ def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description='Prepare Jira Cloud for Jira-FireFlow')
     parser.add_argument('--base-url', required=True)
-    parser.add_argument('--project-key', '--space-key', dest='project_key', default='ALGO')
-    parser.add_argument('--project-name', '--space-name', dest='project_name', default='AlgoSec')
+    parser.add_argument('--project-key', '--space-key', dest='project_key')
+    parser.add_argument('--project-name', '--space-name', dest='project_name')
+    parser.add_argument('--work-type-name')
     parser.add_argument('--space-only', action='store_true',
                         help='create or verify only the company-managed Jira Space')
     parser.add_argument('--apply', action='store_true')
@@ -264,6 +274,15 @@ def main(argv=None):
     token = prompt('Jira administrator API token: ', secret=True)
     if not email or not token or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in email + token):
         raise JiraProvisionError('Jira credentials must be nonempty single-line values')
+    project_key = (args.project_key if args.project_key is not None
+                   else prompt('Jira Space key [ALGO]: ').strip() or 'ALGO')
+    project_name = (args.project_name if args.project_name is not None
+                    else prompt('Jira Space name [AlgoSec]: ').strip() or 'AlgoSec')
+    issue_type_name = None
+    if not args.space_only:
+        issue_type_name = (args.work_type_name if args.work_type_name is not None
+                           else prompt('Jira work type name [Network Access]: ').strip()
+                           or 'Network Access')
     authorization = base64.b64encode((email + ':' + token).encode()).decode('ascii')
     headers = {'Authorization': 'Basic ' + authorization}
 
@@ -283,10 +302,11 @@ def main(argv=None):
 
     if args.space_only:
         result = ensure_space(call, apply=args.apply,
-                              project_key=args.project_key, project_name=args.project_name)
+                              project_key=project_key, project_name=project_name)
     else:
         result = prepare_jira(call, apply=args.apply,
-                              project_key=args.project_key, project_name=args.project_name)
+                              project_key=project_key, project_name=project_name,
+                              issue_type_name=issue_type_name)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get('ready') else 2
 
