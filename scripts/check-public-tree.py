@@ -41,8 +41,9 @@ allowed_screenshots = {
         'f5f8a9c9c7739345', '56106c1bce769247')),
     'docs/screenshots/17-space-work-types.png': 'd85d89ad134bcf53ae56ca04b8595d8f886fb6171d6f37d1320b42a323aa76ac',
     'docs/screenshots/18-space-initial-statuses.png': 'f54a01ad782a53c06da9f029daae76366203bf725332771e67632d829e1a15b5',
-    'docs/screenshots/21-docker-installer.png': 'c571ae6d4726c7d2fd03f33febbcca112a5bc77f42b4bc874f267f2ec9ed59c2',
+    'docs/screenshots/21-docker-installer.png': 'f528da657487d6ef09d8c544304ea017d06548bafa4831eb6236bdf25871f333',
     'docs/screenshots/22-bus-conf.png': '5631eb20f621c6f70b052d062a166f17c5736d064a2ffba5675c3d3e9ce84d2f',
+    'docs/screenshots/23-structured-network-request.png': 'cab01aa928e1cbde7f9f810600abbd194d2918114515b7150187cb740e333583',
 }
 violations = []
 for path in root.rglob('*'):

@@ -45,6 +45,8 @@ sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
 ```
 
+![Ready Docker installer with stable latest-release links](docs/screenshots/21-docker-installer.png)
+
 `--guided` is the simplest installation path for a new Linux server. It installs missing
 Docker, Git, terminal-dialog and build prerequisites; installs Node.js 22 and Forge CLI under
 the selected non-root operator; deploys or reuses one Forge App; and prepares a company-managed
@@ -62,6 +64,8 @@ To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
 it belongs to the Multi-Approval and Parallel-Approval FireFlow workflows, not Basic. The
 wizard then validates and starts the Docker bus. Forge credentials are used only during
 deployment. Runtime Jira and FireFlow secrets remain in the private container configuration.
+
+![Structured Jira network-access request with RFC 5737 example addresses](docs/screenshots/23-structured-network-request.png)
 
 Upgrade an existing installer-managed container without entering or rewriting its secrets:
 
@@ -124,6 +128,8 @@ subsequent release upgrades. Every configuration run asks for the Jira and FireF
 API credentials again; enter the current values even when changing only one setting. After
 FireFlow authentication, the wizard automatically loads all permitted FireFlow-supported
 device tree names from ASMS; they are not typed manually.
+
+![Post-deployment bus configuration with synthetic endpoints and hidden secrets](docs/screenshots/22-bus-conf.png)
 
 `sudo bus_conf --jira-sync` is a separate menu that preserves both API credentials. It can copy
 new Jira comments into FireFlow as internal History comments and apply an editable, explicit
@@ -283,6 +289,8 @@ sha256sum -c algosec-jira-bus-latest-docker-amd64.run.sha256
 sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 ```
 
+![Готовий Docker installer зі стабільними latest-посиланнями](docs/screenshots/21-docker-installer.png)
+
 Режим `--guided` відкриває єдиний діалоговий майстер, який:
 
 - встановлює відсутні системні залежності й Docker;
@@ -309,6 +317,8 @@ To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
 `Rejected` і `Cancelled` є альтернативними кінцевими статусами. Статусу `Review` тут немає:
 він належить до FireFlow Multi-Approval та Parallel-Approval, а не до Basic workflow.
 
+![Структурована Jira-форма з прикладами адрес із RFC 5737](docs/screenshots/23-structured-network-request.png)
+
 ## Керування після встановлення
 
 ```sh
@@ -325,6 +335,8 @@ sudo bus_conf --refresh-certificate
 # Налаштувати opt-in синхронізацію коментарів і статусів Jira -> FireFlow:
 sudo bus_conf --jira-sync
 ```
+
+![Повторна конфігурація шини із синтетичними адресами та прихованими секретами](docs/screenshots/22-bus-conf.png)
 
 Майстер залишає `apply: false`, доки оператор явно не введе `START`. Після успішного запуску
 контейнер опитує Jira та FireFlow через HTTPS. Створення, погодження, планування й виконання
