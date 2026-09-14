@@ -5,6 +5,10 @@ const manifest = parse(readFileSync('manifest.yml', 'utf8'));
 const field = manifest.modules['jira:customField'][0];
 assert.equal(field.type, 'object');
 assert.equal(field.schema.properties.schemaVersion.enum[0], 1);
+assert.equal(field.edit.validation, undefined,
+  'manifest validation must stay disabled because Jira evaluates every global copy of the Forge field');
+assert.equal(field.schema.properties.justification.minLength, 1);
+assert.equal(field.schema.properties.trafficLines.minItems, 1);
 assert.equal(field.schema.properties.trafficLines.maxItems, 100);
 assert.deepEqual(field.edit.experience, ['issue-view', 'issue-create']);
 for (const resource of manifest.resources) assert(existsSync(resource.path));

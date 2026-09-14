@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blankRequest, duplicateRow, readForgeFieldContext, removeRow, shouldPersistDraft, validateRequest } from '../src/model';
+import { blankRequest, duplicateRow, readForgeFieldContext, removeRow, validateRequest } from '../src/model';
 
 function valid() {
   const value = blankRequest();
@@ -62,11 +62,4 @@ test('bridge field context remains supported for issue view', () => {
   assert.deepEqual(readForgeFieldContext({
     extension: { fieldValue: existing, renderContext: 'issue-view' },
   }), { fieldValue: existing, renderContext: 'issue-view' });
-});
-
-test('create-like contexts persist valid drafts before the Jira form is submitted', () => {
-  assert.equal(shouldPersistDraft('issue-create'), true);
-  assert.equal(shouldPersistDraft('issue-transition'), true);
-  assert.equal(shouldPersistDraft('portal-request'), true);
-  assert.equal(shouldPersistDraft('issue-view'), false);
 });
