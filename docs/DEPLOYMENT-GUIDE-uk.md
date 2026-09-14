@@ -39,7 +39,7 @@ Guided installer сам перевіряє, чи встановлений сум
 пропускається. Наведений нижче ручний спосіб потрібен лише без `--guided`:
 
 ```sh
-git clone --branch v0.3.13 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.14 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 cd forge
 npm ci --ignore-scripts
@@ -76,7 +76,7 @@ Forge app.
 На адміністративній робочій станції потрібні Node.js 22, npm, Forge CLI та акаунт із правами розгортання Forge і встановлення застосунку на потрібний Jira site. Runtime API-token шини для цього не використовується.
 
 ```sh
-git clone --branch v0.3.13 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.14 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 npm install --global @forge/cli
 sh scripts/setup-forge.sh
@@ -454,6 +454,22 @@ sudo docker exec algosec-jira-bus \
   python /usr/local/libexec/algosec-jira-bus-scheduler.py \
   ack-jira-update NET-8 statuses 12346 --expected-value resolved
 ```
+
+### 2.6. Завершення FireFlow «Already Works»
+
+Дія **Mark Change Request as Already Works** спочатку створює статус `already works`, після чого
+FireFlow автоматично переводить запит у `resolved`. Сучасний endpoint traffic request уже не
+показує проміжний статус і не повертає `Validation Result Details=SUCCESS`. Тому шина не вважає
+сам `resolved` достатнім доказом завершення. Вона читає FireFlow RT History у read-only режимі,
+перевіряє останню явну транзакцію `MatchStatus=already works` і тоді переводить пов'язану Jira-
+заявку в `Done`. Будь-який `resolved` без успішного validation або цієї транзакції залишається
+без кінцевого Jira-переходу.
+
+Для цього у свіжій Basic-конфігурації є `fireflow.legacy_rt_read_enabled: true`. Це не дозволяє
+запис у FireFlow. Окремий mutation gate `fireflow.legacy_rt_enabled` залишається вимкненим, доки
+оператор явно не активує Jira → FireFlow через `sudo bus_conf --jira-sync`. Оновлення до 0.3.14
+додає read-only gate і відповідне outcome rule до наявної Basic-конфігурації, зберігаючи secrets,
+state та налаштування двостороннього запису.
 
 Якщо History однозначно підтверджує, що POST **не виконався**, не використовуйте `ack`.
 Дозвольте одну контрольовану повторну спробу з новим operation ID:

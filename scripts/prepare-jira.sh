@@ -5,7 +5,7 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 unset PYTHONPATH PYTHONHOME DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
 CONTAINER=algosec-jira-bus
-IMAGE=algosec-jira-bus:0.3.13
+IMAGE=algosec-jira-bus:0.3.14
 CREDENTIALS_DIR=
 if [ "${1:-}" = --credentials-dir ]; then
     [ "$#" -ge 2 ] || { echo 'Missing Jira credentials directory.' >&2; exit 2; }

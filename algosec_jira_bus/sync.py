@@ -856,8 +856,21 @@ def mirror(settings, fireflow, state, jira=None, dry_run=True, log=print,
             details = {name: field_of(body_of(ticket), name) for name in sorted(names)}
             details = {name: value for name, value in details.items() if value is not None}
             if mirror_config.get('verify_resolved_children') and same_status(status, 'resolved'):
-                details['Completion verified'] = 'yes' if resolved_tree_verified(
-                    fireflow, ticket, identifier) else 'no'
+                verified = resolved_tree_verified(fireflow, ticket, identifier)
+                details['Completion verified'] = 'yes' if verified else 'no'
+                if not verified:
+                    previous = entry.get('workflow_details', {}).get('Completion outcome')
+                    outcome = previous if previous == 'already works' else None
+                    reader = getattr(fireflow, 'rt_terminal_outcome', None)
+                    if outcome is None and callable(reader):
+                        try:
+                            outcome = reader(identifier)
+                        except (OSError, ValueError):
+                            # Fail closed: publish the REST result, but do not authorize
+                            # a terminal Jira transition without explicit evidence.
+                            outcome = None
+                    if outcome:
+                        details['Completion outcome'] = outcome
             if not status:
                 raise ValueError('FireFlow response contains no workflow status')
         except Exception as error:
