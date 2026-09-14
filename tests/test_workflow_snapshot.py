@@ -1,9 +1,21 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from algosec_jira_bus.sync import State, mirror
 
 class WorkflowSnapshot(unittest.TestCase):
+    def test_basic_example_collapses_every_active_fireflow_stage_into_in_work(self):
+        config = json.loads((Path(__file__).resolve().parents[1] /
+                             'examples/jira-sync-basic-structured.json').read_text())
+        transitions = config['mirror']['transitions']
+        for status in ('open', 'plan', 'approve', 'approved', 'check',
+                       'implementation plan', 'create work order', 'implement',
+                       'validate', 'user accept', 'reconcile', 'pending match', 'match'):
+            self.assertEqual(transitions[status], 'In Work')
+        self.assertEqual(transitions['rejected'], 'Rejected / Cancelled')
+        self.assertEqual(transitions['cancelled'], 'Rejected / Cancelled')
+
     def test_owner_change_is_delivered_without_repeating_transition(self):
         with tempfile.TemporaryDirectory() as d:
             state = State(Path(d)/'state.json')

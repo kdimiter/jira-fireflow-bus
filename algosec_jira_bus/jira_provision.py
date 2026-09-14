@@ -25,19 +25,13 @@ SPACE_TEMPLATE = 'com.atlassian.jira-core-project-templates:jira-core-project-ma
 PAGE_SIZE = 100
 BASIC_WORKFLOW_STATUSES = (
     ('To Do', 'TODO'),
-    ('Plan', 'IN_PROGRESS'),
-    ('Approve', 'IN_PROGRESS'),
-    ('Implement', 'IN_PROGRESS'),
-    ('Validate', 'IN_PROGRESS'),
-    ('Match', 'IN_PROGRESS'),
+    ('In Work', 'IN_PROGRESS'),
     ('Done', 'DONE'),
-    ('Rejected', 'DONE'),
-    ('Cancelled', 'DONE'),
+    ('Rejected / Cancelled', 'DONE'),
 )
 BASIC_WORKFLOW_TRANSITION_IDS = {
-    'To Do': '11', 'Plan': '21', 'Approve': '31', 'Implement': '41',
-    'Validate': '51', 'Match': '61', 'Done': '71', 'Rejected': '81',
-    'Cancelled': '91',
+    'To Do': '11', 'In Work': '21', 'Done': '31',
+    'Rejected / Cancelled': '41',
 }
 
 

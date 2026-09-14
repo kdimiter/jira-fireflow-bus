@@ -48,7 +48,7 @@ class SetupWizardTests(unittest.TestCase):
     def test_fresh_reverse_status_map_matches_the_basic_workflow(self):
         self.assertEqual(wizard.DEFAULT_JIRA_STATUS_MAP, {
             'To Do': 'open', 'Done': 'resolved',
-            'Rejected': 'rejected', 'Cancelled': 'cancelled',
+            'Rejected / Cancelled': 'cancelled',
         })
 
     def test_jira_to_fireflow_menu_preserves_existing_settings_and_secrets(self):
@@ -73,7 +73,8 @@ class SetupWizardTests(unittest.TestCase):
         self.assertTrue(saved['fireflow']['legacy_rt_enabled'])
         self.assertTrue(saved['jira_to_fireflow']['enabled'])
         self.assertTrue(saved['jira_to_fireflow']['comments'])
-        self.assertEqual(saved['jira_to_fireflow']['status_map']['Cancelled'], 'cancelled')
+        self.assertEqual(saved['jira_to_fireflow']['status_map']['Rejected / Cancelled'],
+                         'cancelled')
         self.assertEqual(saved['jira_to_fireflow']['status_map']['To Do'], 'open')
 
     def test_jira_to_fireflow_menu_accepts_an_editable_status_map(self):

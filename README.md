@@ -63,16 +63,18 @@ Forge CLI under the selected non-root operator, registers and installs the app, 
 a company-managed Jira Space with the chosen standard work type. That work type receives the Forge Basic network
 request field, the optional FireFlow Request ID, FireFlow Status and FireFlow Owner result
 fields, and dedicated work type, screen, field-configuration and workflow schemes. The dedicated
-work type scheme contains only the selected integration type. The workflow follows
-the Basic FireFlow lifecycle:
+work type scheme contains only the selected integration type. Jira uses a compact four-state
+view while FireFlow retains its complete Basic lifecycle:
 
 ```text
-To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
+To Do -> In Work -> Done
+                  -> Rejected / Cancelled
 ```
 
-`Rejected` and `Cancelled` are terminal alternatives. `Review` is deliberately absent because
-it belongs to the Multi-Approval and Parallel-Approval FireFlow workflows, not Basic. The
-wizard then validates and starts the Docker bus. Jira administrator credentials are entered once,
+All nonterminal FireFlow stages map to `In Work`; the exact status remains visible in the
+FireFlow Status field and Jira comments. A Jira transition to `Rejected / Cancelled` sends
+`cancelled` to FireFlow when reverse status synchronization is enabled. The wizard then validates
+and starts the Docker bus. Jira administrator credentials are entered once,
 kept only in owner-only temporary files for discovery and preparation, and deleted afterward.
 Forge credentials are requested only when deployment is needed. Runtime Jira and FireFlow secrets
 remain in the private container configuration.
@@ -344,14 +346,17 @@ owner-only файлах для пошуку Forge-застосунків і пі
 Поля FireFlow Request ID, Status і Owner залишаються видимими та необов'язковими. Окрема work
 type scheme містить лише вибраний інтеграційний тип і не змінює схеми інших Space. Автоматичне
 призначення схем виконується лише для порожнього Space; якщо в ньому вже є заявки і потрібна
-міграція, helper зупиняється. Для вибраного типу майстер створює Basic workflow:
+міграція, helper зупиняється. Для вибраного типу майстер створює компактний Jira workflow;
+повний Basic lifecycle залишається у FireFlow:
 
 ```text
-To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
+To Do -> In Work -> Done
+                  -> Rejected / Cancelled
 ```
 
-`Rejected` і `Cancelled` є альтернативними кінцевими статусами. Статусу `Review` тут немає:
-він належить до FireFlow Multi-Approval та Parallel-Approval, а не до Basic workflow.
+Усі проміжні етапи FireFlow відображаються в Jira як `In Work`; точний стан залишається у полі
+FireFlow Status і коментарях. Ручний перехід Jira у `Rejected / Cancelled` передає до FireFlow
+статус `cancelled`, якщо увімкнено зворотну синхронізацію статусів.
 
 ![Структурована Jira-форма з прикладами адрес із RFC 5737](docs/screenshots/23-structured-network-request.png)
 

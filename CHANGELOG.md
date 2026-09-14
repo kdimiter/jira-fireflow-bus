@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add a compact Jira workflow with `To Do`, `In Work`, `Done`, and
+  `Rejected / Cancelled`. FireFlow keeps the complete Basic approval lifecycle and reports its
+  precise status through the result field and comments.
+
 ## 0.3.14
 
 - Recognize FireFlow's **Mark Change Request as Already Works** result from the explicit

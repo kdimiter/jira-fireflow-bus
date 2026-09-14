@@ -485,12 +485,11 @@ class JiraProvisionTests(unittest.TestCase):
         categories = {item['name']: item['statusCategory']
                       for item in payload['statuses']}
         self.assertEqual(categories, {
-            'To Do': 'TODO', 'Plan': 'IN_PROGRESS',
-            'Approve': 'IN_PROGRESS', 'Implement': 'IN_PROGRESS',
-            'Validate': 'IN_PROGRESS', 'Match': 'IN_PROGRESS',
-            'Done': 'DONE', 'Rejected': 'DONE', 'Cancelled': 'DONE',
+            'To Do': 'TODO', 'In Work': 'IN_PROGRESS',
+            'Done': 'DONE', 'Rejected / Cancelled': 'DONE',
         })
-        self.assertNotIn('Review', categories)
+        self.assertNotIn('Approve', categories)
+        self.assertNotIn('Implement', categories)
         references = {item['statusReference']: item['name']
                       for item in payload['statuses']}
         transitions = {(item['name'], item['type'],

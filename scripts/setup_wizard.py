@@ -25,8 +25,7 @@ MAX_PRIVATE_TEXT_BYTES = 1024 * 1024
 DEFAULT_JIRA_STATUS_MAP = {
     'To Do': 'open',
     'Done': 'resolved',
-    'Rejected': 'rejected',
-    'Cancelled': 'cancelled',
+    'Rejected / Cancelled': 'cancelled',
 }
 
 
