@@ -134,6 +134,10 @@ Space on later runs. Omit `--apply` for a read-only validation. Both Jira helper
 When these options are omitted, the helpers prompt for their values. `prepare-jira.sh` also
 prompts for a work type name; `--work-type-name` selects it non-interactively. Use a unique
 name when the tenant already contains duplicate `Network Access` work types.
+The result includes a direct `issue_layout.url`. Open it once, move **Мережеві доступи
+AlgoSec** to **Description fields**, keep the three FireFlow result fields in **Context fields**,
+and save. Jira Cloud exposes this visual placement only in its administrator UI, so the guided
+installer pauses for this step instead of using an unsupported internal endpoint.
 
 On a clean Ubuntu/Debian or RHEL/Rocky/AlmaLinux host, the verified `.run` installer
 installs Python 3 and Docker Engine from the OS and official Docker repositories when they are
@@ -238,20 +242,20 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.3.12-linux.run
+  --output dist/algosec-jira-bus-0.3.13-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.3.12-linux.run \
-  dist/algosec-jira-bus-0.3.12-docker-amd64.tar.gz
+  dist/algosec-jira-bus-0.3.13-linux.run \
+  dist/algosec-jira-bus-0.3.13-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
-  --image dist/algosec-jira-bus-0.3.12-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.3.12-docker-amd64.run
+  --image dist/algosec-jira-bus-0.3.13-docker-amd64.tar.gz \
+  --output dist/algosec-jira-bus-0.3.13-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.3.12 --image algosec-jira-bus:0.3.12
+  --directory dist --version 0.3.13 --image algosec-jira-bus:0.3.13
 
 # Publish these stable aliases in every release so README download URLs never change:
-cp dist/algosec-jira-bus-0.3.12-docker-amd64.run \
+cp dist/algosec-jira-bus-0.3.13-docker-amd64.run \
   dist/algosec-jira-bus-latest-docker-amd64.run
-cp dist/algosec-jira-bus-0.3.12-linux.run \
+cp dist/algosec-jira-bus-0.3.13-linux.run \
   dist/algosec-jira-bus-latest-linux.run
 (cd dist && shasum -a 256 algosec-jira-bus-latest-docker-amd64.run \
   > algosec-jira-bus-latest-docker-amd64.run.sha256)
@@ -418,6 +422,12 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run
 керовані ним об'єкти. Він також створює та призначає окремі work type і workflow schemes для
 цього інтеграційного типу та не змінює схеми інших Space. Якщо Space уже містить заявки,
 helper відмовляється виконувати потрібну автоматичну міграцію схем.
+
+У JSON-результаті helper повертає пряме `issue_layout.url`. Один раз відкрийте його,
+перенесіть **Мережеві доступи AlgoSec** до **Description fields**, залиште FireFlow Request ID,
+Status і Owner у **Context fields** та збережіть. Jira Cloud не має публічного API для цього
+візуального розміщення, тому guided installer зупиняється на цьому кроці й чекає підтвердження,
+а не викликає нестабільний внутрішній endpoint.
 
 ## TLS і зберігання секретів
 

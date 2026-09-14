@@ -67,6 +67,13 @@ class GuidedForgeSelectionTests(unittest.TestCase):
     def test_does_not_depend_on_a_nonexistent_forge_apps_list_command(self):
         self.assertNotIn('forge apps list', self.script)
 
+    def test_guided_setup_requires_the_supported_jira_layout_step(self):
+        self.assertIn('JIRA_PREPARATION_RESULT', self.script)
+        self.assertIn("result['issue_layout']['url']", self.script)
+        self.assertIn('Description fields', self.script)
+        self.assertIn('Context fields', self.script)
+        self.assertNotIn('/rest/internal/', self.script)
+
 
 if __name__ == '__main__':
     unittest.main()

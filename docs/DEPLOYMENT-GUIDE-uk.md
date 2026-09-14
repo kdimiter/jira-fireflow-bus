@@ -39,7 +39,7 @@ Guided installer сам перевіряє, чи встановлений сум
 пропускається. Наведений нижче ручний спосіб потрібен лише без `--guided`:
 
 ```sh
-git clone --branch v0.3.12 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.13 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 cd forge
 npm ci --ignore-scripts
@@ -76,7 +76,7 @@ Forge app.
 На адміністративній робочій станції потрібні Node.js 22, npm, Forge CLI та акаунт із правами розгортання Forge і встановлення застосунку на потрібний Jira site. Runtime API-token шини для цього не використовується.
 
 ```sh
-git clone --branch v0.3.12 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
+git clone --branch v0.3.13 --depth 1 https://github.com/kdimiter/jira-fireflow-bus.git
 cd jira-fireflow-bus
 npm install --global @forge/cli
 sh scripts/setup-forge.sh
@@ -98,6 +98,14 @@ sh scripts/setup-forge.sh
 Розкладка й додавання наявних полів описані в [Atlassian: поля team-managed простору](https://support.atlassian.com/jira-software-cloud/docs/customize-an-issues-fields-in-team-managed-projects/). Якщо поле не знайдено, перевірте site/environment установленого Forge app та глобальний список полів під Jira administrator; порожній список не виправляється створенням однойменного Short text.
 
 Для **company-managed** проєкту Jira administrator відкриває **Settings → Work items → Screens → потрібний екран → ⋯ → Configure** і додає **Мережеві доступи AlgoSec** через **Select field**. Перевірте екрани Create/Edit/View, які screen scheme призначає саме типу Network Access, і контекст поля для цього проєкту/типу. Після цього розмістіть поле в основній частині work item layout. [Atlassian: налаштування екранів](https://support.atlassian.com/jira-cloud-administration/docs/add-a-custom-field-to-a-screen).
+
+`prepare-jira.sh` повертає точне `issue_layout.url` для створеного екрана, а guided installer
+показує його окремим обов'язковим кроком. Відкрийте посилання, перенесіть
+**Мережеві доступи AlgoSec** до **Description fields**, залиште **FireFlow Request ID**,
+**FireFlow Status** і **FireFlow Owner** у **Context fields**, натисніть **Save changes** і лише
+тоді підтвердьте продовження інсталятора. Jira Cloud не публікує REST-операцію для переміщення
+між цими секціями; вони налаштовуються окремо для кожного Space, тому helper не використовує
+нестабільний `/rest/internal/` endpoint. [Atlassian: work item layout](https://support.atlassian.com/jira-cloud-administration/docs/configure-issue-layout/).
 
 #### 3. Вручну створіть три поля результату
 

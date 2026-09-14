@@ -438,6 +438,16 @@ class JiraProvisionTests(unittest.TestCase):
         result = prepare_jira(call, apply=True)
         self.assertTrue(result['ready'])
         self.assertEqual(set(result['fields']), {'structured', 'id', 'status', 'owner'})
+        self.assertEqual(
+            result['issue_layout'],
+            {
+                'path': ('/plugins/servlet/project-config/ALGO/issuelayout'
+                         '?screenId=' + result['screen_id']),
+                'structured_field_section': 'Description fields',
+                'result_field_section': 'Context fields',
+                'automatic': False,
+            })
+        self.assertIn('Description fields', result['manual'][0])
         mutations = [(path, options.get('method')) for path, options in calls
                      if options.get('method') in ('POST', 'PUT')]
         self.assertIn(('/rest/api/3/project', 'POST'), mutations)

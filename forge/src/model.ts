@@ -27,9 +27,6 @@ export function readForgeFieldContext(raw: unknown): ForgeFieldContext {
       ? extension.renderContext : 'issue-view',
   };
 }
-export function shouldPersistDraft(renderContext: string): boolean {
-  return ['issue-create', 'issue-transition', 'portal-request'].includes(renderContext);
-}
 export function duplicateRow(value: RequestValue, index: number): RequestValue {
   if (value.trafficLines.length >= MAX_ROWS) return value;
   const rows = [...value.trafficLines];

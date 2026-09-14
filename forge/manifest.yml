@@ -21,11 +21,6 @@ modules:
         render: native
         isInline: true
         experience: [ issue-view, issue-create ]
-        validation:
-          expression: "value == null || (value.schemaVersion == 1 &&
-            value.justification.trim().length > 0 && value.trafficLines.length
-            >= 1 && value.trafficLines.length <= 100)"
-          errorMessage: Заповніть обґрунтування та від 1 до 100 доступів.
       schema:
         type: object
         additionalProperties: false
