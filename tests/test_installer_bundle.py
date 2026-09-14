@@ -7,6 +7,7 @@ import sys
 import hashlib
 import io
 import tarfile
+import tomllib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -20,6 +21,19 @@ docker_spec = importlib.util.spec_from_file_location(
     'docker_installer_builder', ROOT / 'scripts/build-docker-installer.py')
 docker_builder = importlib.util.module_from_spec(docker_spec)
 docker_spec.loader.exec_module(docker_builder)
+
+
+class ReleaseVersionConsistencyTests(unittest.TestCase):
+    def test_runtime_packaging_uses_the_project_version(self):
+        version = tomllib.loads((ROOT / 'pyproject.toml').read_text())['project']['version']
+        for relative in (
+                'packaging/docker/Dockerfile', 'packaging/docker/build-image.sh',
+                'packaging/docker/compose.yaml', 'packaging/docker/install-docker.sh',
+                'packaging/docker/bus_conf', 'scripts/build-docker-installer.py',
+                'scripts/create-jira-space.sh', 'scripts/prepare-fireflow.sh',
+                'scripts/prepare-jira.sh'):
+            with self.subTest(path=relative):
+                self.assertIn(version, (ROOT / relative).read_text())
 
 
 class InstallerBundleTests(unittest.TestCase):
