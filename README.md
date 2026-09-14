@@ -72,7 +72,8 @@ Full:    To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
                                                        \-> Rejected | Cancelled
 ```
 
-Compact maps all nonterminal FireFlow stages to `In Work`; Full displays the process stages
+Compact keeps `new`, `open`, and `plan` in `To Do`, then maps `approve` and later
+active FireFlow stages to `In Work`; Full displays the process stages
 separately. The exact FireFlow status remains visible in the FireFlow Status field and Jira
 comments in both profiles. The wizard then validates
 and starts the Docker bus. Jira administrator credentials are entered once,
@@ -358,7 +359,8 @@ Full:    To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
                                                        \-> Rejected | Cancelled
 ```
 
-У Compact усі проміжні етапи FireFlow відображаються як `In Work`; у Full вони показуються
+У Compact нова заявка та етап `Plan` залишаються в `To Do`. Після переходу FireFlow
+до `Approve` і на наступних робочих етапах Jira показує `In Work`; у Full вони показуються
 окремо. Точний стан завжди залишається у полі FireFlow Status і коментарях.
 
 ![Структурована Jira-форма з прикладами адрес із RFC 5737](docs/screenshots/23-structured-network-request.png)

@@ -44,8 +44,8 @@
   "mirror": {
     "comment": "AlgoSec FireFlow: заявка %(id)s тепер у статусі %(status)s.",
     "transitions": {
-      "open": "In Work",
-      "plan": "In Work",
+      "open": "To Do",
+      "plan": "To Do",
       "approve": "In Work",
       "approved": "In Work",
       "create work order": "In Work",

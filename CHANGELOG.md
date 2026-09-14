@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep compact Jira requests in `To Do` while FireFlow is `new`, `open`, or
+  `plan`; move them to `In Work` only when FireFlow reaches `approve` or a
+  later active stage. Docker upgrades migrate the previous compact mapping
+  without changing secrets.
 - Add a compact Jira workflow with `To Do`, `In Work`, `Done`, and
   `Rejected / Cancelled`. FireFlow keeps the complete Basic approval lifecycle and reports its
   precise status through the result field and comments.

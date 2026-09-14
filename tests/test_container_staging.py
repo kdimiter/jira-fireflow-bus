@@ -177,6 +177,46 @@ class UpgradeConfigTests(unittest.TestCase):
             'equals': 'already works', 'transition': 'Done',
         }, result['mirror']['outcome_rules'])
 
+    def test_upgrade_keeps_compact_request_todo_until_fireflow_approval(self):
+        value = json.loads(self.source.read_text())
+        value['fireflow']['template'] = 'Basic Change Traffic Request'
+        value['mirror'] = {'transitions': {
+            'new': 'To Do',
+            'open': 'In Work',
+            'plan': 'In Work',
+            'approve': 'In Work',
+            'rejected': 'Rejected / Cancelled',
+            'cancelled': 'Rejected / Cancelled',
+        }}
+        self.source.write_text(json.dumps(value)); self.source.chmod(0o600)
+
+        upgrader.stage(self.source, self.staged, os.getuid())
+
+        transitions = json.loads(
+            self.staged.read_text())['mirror']['transitions']
+        self.assertEqual(transitions['new'], 'To Do')
+        self.assertEqual(transitions['open'], 'To Do')
+        self.assertEqual(transitions['plan'], 'To Do')
+        self.assertEqual(transitions['approve'], 'In Work')
+
+    def test_upgrade_does_not_rewrite_a_custom_status_mapping(self):
+        value = json.loads(self.source.read_text())
+        value['fireflow']['template'] = 'Basic Change Traffic Request'
+        value['mirror'] = {'transitions': {
+            'new': 'Queue',
+            'open': 'Active',
+            'plan': 'Planning',
+            'rejected': 'Declined',
+            'cancelled': 'Cancelled',
+        }}
+        self.source.write_text(json.dumps(value)); self.source.chmod(0o600)
+
+        upgrader.stage(self.source, self.staged, os.getuid())
+
+        self.assertEqual(
+            json.loads(self.staged.read_text())['mirror']['transitions'],
+            value['mirror']['transitions'])
+
     def test_preserves_an_explicit_jira_to_fireflow_configuration(self):
         value = json.loads(self.source.read_text())
         value['fireflow']['legacy_rt_enabled'] = True

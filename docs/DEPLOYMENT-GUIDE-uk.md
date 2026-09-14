@@ -251,7 +251,8 @@ Full:    To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
                                                        \-> Rejected | Cancelled
 ```
 
-У Compact Jira-картка залишається в `In Work` на проміжних етапах; у Full етапи показуються
+У Compact Jira-картка залишається в `To Do` під час `open` і `plan`, переходить до
+`In Work` лише коли FireFlow доходить до `approve`; у Full етапи показуються
 окремо. Точний поточний стан завжди записується в FireFlow Status і коментар. Mac і окремий
 checkout repository не потрібні.
 Jira administrator email і token вводяться один раз та зберігаються лише у тимчасових файлах
@@ -627,7 +628,8 @@ Native secrets: `/etc/algosec-jira-bus/secrets.env`, режим `0600`, влас
 `Rejected / Cancelled`. Створіть переходи
 з такими самими назвами з будь-якого статусу до відповідного цільового статусу. Саме ці
 назви використовує `examples/jira-sync-basic-structured-compact.json`; без них зворотне оновлення
-статусів із FireFlow не працюватиме. Усі проміжні етапи FireFlow відображаються як `In Work`,
+статусів із FireFlow не працюватиме. Стани `new`, `open` і `plan` відображаються як
+`To Do`; `approve` та наступні робочі етапи — як `In Work`,
 а точний стан читається з FireFlow Status. Якщо team-managed project не дозволяє відтворити цю
 схему, використайте company-managed project і `prepare-jira.sh`.
 

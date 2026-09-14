@@ -5,11 +5,13 @@ from pathlib import Path
 from algosec_jira_bus.sync import State, mirror
 
 class WorkflowSnapshot(unittest.TestCase):
-    def test_compact_example_collapses_every_active_fireflow_stage_into_in_work(self):
+    def test_compact_example_waits_for_approval_before_entering_in_work(self):
         config = json.loads((Path(__file__).resolve().parents[1] /
                              'examples/jira-sync-basic-structured-compact.json').read_text())
         transitions = config['mirror']['transitions']
-        for status in ('open', 'plan', 'approve', 'approved', 'check',
+        for status in ('new', 'open', 'plan'):
+            self.assertEqual(transitions[status], 'To Do')
+        for status in ('approve', 'approved', 'check',
                        'implementation plan', 'create work order', 'implement',
                        'validate', 'user accept', 'reconcile', 'pending match', 'match'):
             self.assertEqual(transitions[status], 'In Work')
