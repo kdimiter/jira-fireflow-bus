@@ -5,6 +5,8 @@
 - Add a compact Jira workflow with `To Do`, `In Work`, `Done`, and
   `Rejected / Cancelled`. FireFlow keeps the complete Basic approval lifecycle and reports its
   precise status through the result field and comments.
+- Keep the dedicated network-access work type as the Jira Space default on repeat preparation,
+  preventing a drifted `Task` default from opening the Forge field on an incompatible form.
 
 ## 0.3.14
 

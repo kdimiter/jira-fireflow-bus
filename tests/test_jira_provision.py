@@ -238,6 +238,17 @@ class JiraProvisionTests(unittest.TestCase):
                 issue_type_schemes.append(item)
                 issue_type_scheme_items[scheme_id] = list(kwargs['body']['issueTypeIds'])
                 return {'issueTypeSchemeId': scheme_id}
+            if (path.startswith('/rest/api/3/issuetypescheme/')
+                    and kwargs.get('method') == 'PUT'):
+                scheme_id = path.rsplit('/', 1)[-1]
+                scheme = next(item for item in issue_type_schemes
+                              if item['id'] == scheme_id)
+                scheme.update({
+                    'name': kwargs['body']['name'],
+                    'description': kwargs['body'].get('description', ''),
+                    'defaultIssueTypeId': kwargs['body']['defaultIssueTypeId'],
+                })
+                return None
             if path.endswith('/issuetype') and kwargs.get('method') == 'PUT':
                 return None
             if path == '/rest/api/3/search/jql':
@@ -591,6 +602,43 @@ class JiraProvisionTests(unittest.TestCase):
 
         with self.assertRaisesRegex(JiraProvisionError, 'unexpected work types'):
             prepare_jira(call, apply=True)
+
+    def test_existing_work_type_scheme_repairs_wrong_default_type(self):
+        base_call, calls = self.fixture({
+            'id': '10001', 'key': 'ALGO', 'name': 'AlgoSec',
+            'issueTypes': [], 'simplified': False})
+        first = prepare_jira(base_call, apply=True)
+        calls.clear()
+        wrong_default = True
+
+        def call(path, **options):
+            nonlocal wrong_default
+            result = base_call(path, **options)
+            if (path == '/rest/api/3/issuetypescheme'
+                    and options.get('method') != 'POST' and wrong_default):
+                result = copy.deepcopy(result)
+                for item in result['values']:
+                    if item.get('id') == first['issue_type_scheme_id']:
+                        item['defaultIssueTypeId'] = '19999'
+            if (path == '/rest/api/3/issuetypescheme/'
+                    + first['issue_type_scheme_id']
+                    and options.get('method') == 'PUT'):
+                wrong_default = False
+            return result
+
+        second = prepare_jira(call, apply=True)
+
+        updates = [options['body'] for path, options in calls
+                   if path == ('/rest/api/3/issuetypescheme/'
+                               + first['issue_type_scheme_id'])
+                   and options.get('method') == 'PUT']
+        self.assertEqual(updates, [{
+            'name': 'ALGO Jira-FireFlow Work Type Scheme',
+            'description': 'Managed by jira-fireflow-bus prepare-jira.sh',
+            'defaultIssueTypeId': first['issue_type_id'],
+        }])
+        self.assertEqual(second['issue_type_scheme_id'],
+                         first['issue_type_scheme_id'])
 
     def test_nonempty_space_refuses_automatic_workflow_migration(self):
         base_call, calls = self.fixture({

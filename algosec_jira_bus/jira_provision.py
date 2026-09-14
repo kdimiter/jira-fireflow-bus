@@ -460,6 +460,28 @@ def _ensure_issue_type_scheme(call, *, apply, project_key, project_id,
                 'Managed Jira work type scheme is assigned to another Jira project')
     if _issue_type_scheme_items(call, scheme_id) != [issue_type_id]:
         raise JiraProvisionError('Managed Jira work type scheme has unexpected work types')
+    default_issue_type_id = (issue_type_id if scheme is None else
+                             str(scheme.get('defaultIssueTypeId')))
+    if default_issue_type_id != issue_type_id:
+        if not apply:
+            return {
+                'ready': False,
+                'planned': ['work-type-default:' + scheme_name],
+            }
+        call('/rest/api/3/issuetypescheme/' + scheme_id, method='PUT', body={
+            'name': scheme_name,
+            'description': MARKER,
+            'defaultIssueTypeId': issue_type_id,
+        })
+        created.append('work-type-default:' + scheme_name)
+        refreshed = _managed_named(_page_values(
+            call, '/rest/api/3/issuetypescheme',
+            query={'queryString': scheme_name, 'expand': 'projects,issueTypes'}),
+            scheme_name, 'work type scheme')
+        if (refreshed is None
+                or str(refreshed.get('defaultIssueTypeId')) != issue_type_id):
+            raise JiraProvisionError(
+                'Jira did not confirm the default integration work type')
     return {'ready': True, 'issue_type_scheme_id': scheme_id,
             'assignment_needed': current_id != scheme_id}
 
