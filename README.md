@@ -150,6 +150,11 @@ API credentials again; enter the current values even when changing only one sett
 FireFlow authentication, the wizard automatically loads all permitted FireFlow-supported
 device tree names from ASMS; they are not typed manually.
 
+When FireFlow uses **Mark Change Request as Already Works**, its modern API reports only the
+final `resolved` status and omits normal validation results. The bus verifies the explicit
+`MatchStatus=already works` transaction through read-only FireFlow History before moving Jira to
+`Done`. This evidence read does not enable Jira-to-FireFlow comments or status writes.
+
 ![Post-deployment bus configuration with synthetic endpoints and hidden secrets](docs/screenshots/22-bus-conf.png)
 
 `sudo bus_conf --jira-sync` is a separate menu that preserves both API credentials. It can copy
@@ -242,20 +247,20 @@ Maintainers build release artifacts from a verified checkout:
 
 ```sh
 python3 scripts/build-installer.py \
-  --output dist/algosec-jira-bus-0.3.13-linux.run
+  --output dist/algosec-jira-bus-0.3.14-linux.run
 sh packaging/docker/build-image.sh \
-  dist/algosec-jira-bus-0.3.13-linux.run \
-  dist/algosec-jira-bus-0.3.13-docker-amd64.tar.gz
+  dist/algosec-jira-bus-0.3.14-linux.run \
+  dist/algosec-jira-bus-0.3.14-docker-amd64.tar.gz
 python3 scripts/build-docker-installer.py \
-  --image dist/algosec-jira-bus-0.3.13-docker-amd64.tar.gz \
-  --output dist/algosec-jira-bus-0.3.13-docker-amd64.run
+  --image dist/algosec-jira-bus-0.3.14-docker-amd64.tar.gz \
+  --output dist/algosec-jira-bus-0.3.14-docker-amd64.run
 python3 scripts/build-release-metadata.py \
-  --directory dist --version 0.3.13 --image algosec-jira-bus:0.3.13
+  --directory dist --version 0.3.14 --image algosec-jira-bus:0.3.14
 
 # Publish these stable aliases in every release so README download URLs never change:
-cp dist/algosec-jira-bus-0.3.13-docker-amd64.run \
+cp dist/algosec-jira-bus-0.3.14-docker-amd64.run \
   dist/algosec-jira-bus-latest-docker-amd64.run
-cp dist/algosec-jira-bus-0.3.13-linux.run \
+cp dist/algosec-jira-bus-0.3.14-linux.run \
   dist/algosec-jira-bus-latest-linux.run
 (cd dist && shasum -a 256 algosec-jira-bus-latest-docker-amd64.run \
   > algosec-jira-bus-latest-docker-amd64.run.sha256)
@@ -372,6 +377,12 @@ sudo bus_conf --jira-sync
 Майстер залишає `apply: false`, доки оператор явно не введе `START`. Після успішного запуску
 контейнер опитує Jira та FireFlow через HTTPS. Створення, погодження, планування й виконання
 змін залишаються під контролем workflow FireFlow.
+
+Якщо у FireFlow натиснути **Mark Change Request as Already Works**, сучасний API повертає лише
+кінцевий статус `resolved` без звичайного результату validation. Шина додатково перевіряє у
+read-only FireFlow History явну транзакцію `MatchStatus=already works` і тільки після цього
+переводить Jira-заявку в `Done`. Це читання не вмикає запис коментарів або статусів із Jira у
+FireFlow.
 
 ## Безпечне оновлення
 

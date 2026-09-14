@@ -156,6 +156,27 @@ class UpgradeConfigTests(unittest.TestCase):
         self.assertEqual(result['jira_to_fireflow'], {
             'enabled': False, 'comments': True, 'status_map': {}})
 
+    def test_basic_upgrade_adds_read_only_already_works_evidence(self):
+        value = json.loads(self.source.read_text())
+        value['fireflow']['template'] = 'Basic Change Traffic Request'
+        value['mirror'] = {
+            'transitions': {'already works': 'To Do'},
+            'outcome_rules': [{
+                'status': 'resolved', 'field': 'Completion verified',
+                'equals': 'yes', 'transition': 'Done',
+            }],
+        }
+        self.source.write_text(json.dumps(value)); self.source.chmod(0o600)
+        upgrader.stage(self.source, self.staged, os.getuid())
+        result = json.loads(self.staged.read_text())
+        self.assertTrue(result['fireflow']['legacy_rt_read_enabled'])
+        self.assertFalse(result['fireflow']['legacy_rt_enabled'])
+        self.assertEqual(result['mirror']['transitions']['already works'], 'Done')
+        self.assertIn({
+            'status': 'resolved', 'field': 'Completion outcome',
+            'equals': 'already works', 'transition': 'Done',
+        }, result['mirror']['outcome_rules'])
+
     def test_preserves_an_explicit_jira_to_fireflow_configuration(self):
         value = json.loads(self.source.read_text())
         value['fireflow']['legacy_rt_enabled'] = True

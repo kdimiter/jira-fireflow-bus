@@ -322,8 +322,16 @@ class FireFlow:
         if self.config.get('legacy_rt_enabled') is not True:
             raise ValueError('Legacy RT integration is not enabled')
 
+    def _legacy_read_enabled(self):
+        if (self.config.get('legacy_rt_read_enabled') is not True
+                and self.config.get('legacy_rt_enabled') is not True):
+            raise ValueError('Legacy RT read integration is not enabled')
+
     def _rt_wire(self, identifier, suffix='', method='GET', body=None, query=None):
-        self._legacy_enabled()
+        if method == 'GET':
+            self._legacy_read_enabled()
+        else:
+            self._legacy_enabled()
         identifier = ticket_id(identifier)
         if suffix not in ('', '/history', '/edit', '/comment'):
             raise ValueError('Unsupported legacy RT path')
@@ -358,6 +366,25 @@ class FireFlow:
     def rt_history(self, change_request_id):
         """Read full history; bounded by the shared transport response limit."""
         return self._rt_wire(ticket_id(change_request_id), '/history', query={'format': 'l'})
+
+    def rt_terminal_outcome(self, change_request_id):
+        """Return the latest explicit MatchStatus recorded by FireFlow.
+
+        The modern traffic-request response collapses ``already works`` into
+        ``resolved`` and omits MatchStatus. RT history retains the authoritative
+        workflow transaction, which lets the bus distinguish this outcome from an
+        incompletely validated request.
+        """
+        records = _rt_records(self.rt_history(ticket_id(change_request_id)))
+        matches = [(int(record['id']), record.get('NewValue')) for record in records
+                   if re.fullmatch(r'[1-9][0-9]{0,19}', record.get('id', ''))
+                   and record.get('Type') == 'Set'
+                   and record.get('Field') == 'MatchStatus'
+                   and isinstance(record.get('NewValue'), str)]
+        if not matches:
+            return None
+        value = max(matches)[1]
+        return value if RT_STATUS.fullmatch(value) else None
 
     def _rt_intent(self, identifier, operation_id, reason):
         self._authorize(reason)

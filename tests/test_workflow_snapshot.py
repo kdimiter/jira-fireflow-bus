@@ -37,6 +37,51 @@ class WorkflowSnapshot(unittest.TestCase):
         self.assertIsNone(workflow_transition(config, 'resolved', {'Closure reason': 'Rejected'}))
         self.assertEqual(workflow_transition(config, 'resolved', {'Closure reason': 'Already allowed'}), 'Done')
 
+    def test_already_works_history_completes_resolved_request_without_validation_result(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = State(Path(d) / 'state.json')
+            state.record('NET-59', {'change_request_id': 59})
+
+            class FF:
+                def get(self, identifier):
+                    return {'response': {'status': 'Success', 'data': {
+                        'id': identifier, 'subChangeRequests': [], 'fields': [
+                            {'name': 'status', 'values': ['resolved']},
+                            {'name': 'Initial Plan status', 'values': ['Result OK']},
+                        ]}}}
+
+                def rt_terminal_outcome(self, identifier):
+                    self.identifier = identifier
+                    return 'already works'
+
+            class Jira:
+                def __init__(self):
+                    self.comments, self.moves = [], []
+
+                def comment(self, key, text):
+                    self.comments.append((key, text))
+
+                def transition(self, key, target):
+                    self.moves.append((key, target))
+
+            ff, jira = FF(), Jira()
+            cfg = {'jira': {}, 'mirror': {
+                'verify_resolved_children': True,
+                'outcome_rules': [
+                    {'status': 'resolved', 'field': 'Completion verified',
+                     'equals': 'yes', 'transition': 'Done'},
+                    {'status': 'resolved', 'field': 'Completion outcome',
+                     'equals': 'already works', 'transition': 'Done'},
+                ],
+            }}
+            result = mirror(cfg, ff, state, jira, dry_run=False, log=lambda *_a: None)
+            self.assertEqual(result['failed'], [])
+            self.assertEqual(ff.identifier, 59)
+            self.assertEqual(jira.moves, [('NET-59', 'Done')])
+            saved = state.entries()['NET-59']['workflow_details']
+            self.assertEqual(saved['Completion verified'], 'no')
+            self.assertEqual(saved['Completion outcome'], 'already works')
+
     def test_blank_outcome_cannot_authorize_completion(self):
         from algosec_jira_bus.sync import validate_mirror, MappingError
         with self.assertRaises(MappingError):

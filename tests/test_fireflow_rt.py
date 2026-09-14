@@ -59,6 +59,33 @@ class LegacyRT(unittest.TestCase):
         self.assertEqual(self.rt.calls[-1][2]['headers'],
                          {'Cookie': 'RT_SID_FireFlow.443=session_1'})
 
+    def test_read_only_gate_exposes_latest_explicit_terminal_outcome(self):
+        history = ('RT/3.8.2 200 Ok\n\n'
+                   'id: 8\nType: Set\nField: MatchStatus\nOldValue: \nNewValue: \n\n'
+                   'id: 9\nType: Set\nField: MatchStatus\nOldValue: \n'
+                   'NewValue: already works\n')
+
+        def read_only(config, path, **kwargs):
+            return history if path.endswith('/history') else self.rt(config, path, **kwargs)
+
+        client = FireFlow({**self.config, 'legacy_rt_enabled': False,
+                           'legacy_rt_read_enabled': True},
+                          'MANAGE', Audit(self.temp.name), request=self.api,
+                          text_request=read_only, resolver=lambda _: 'session_1')
+        self.assertEqual(client.rt_terminal_outcome(42), 'already works')
+        with self.assertRaisesRegex(ValueError, 'not enabled'):
+            client.add_comment(42, 'Hello', 'read-only-1', 'Mirror comment')
+        with self.assertRaisesRegex(ValueError, 'not enabled'):
+            client._rt_wire(42, '/edit', method='POST', body={'content': 'ignored'})
+
+    def test_terminal_outcome_ignores_status_transitions_and_blank_match_status(self):
+        history = ('RT/3.8.2 200 Ok\n\n'
+                   'id: 8\nType: Status\nField: Status\nOldValue: implement\n'
+                   'NewValue: already works\n\n'
+                   'id: 9\nType: Set\nField: MatchStatus\nOldValue: \nNewValue: \n')
+        self.client.text_request = lambda *_a, **_k: history
+        self.assertIsNone(self.client.rt_terminal_outcome(42))
+
     def test_comment_is_internal_and_multiline_text_cannot_inject_rt_fields(self):
         result = self.client.add_comment(42, 'Який статус?\nStatus: deleted',
                                          'jira-comment-1', 'Mirror Jira comment')

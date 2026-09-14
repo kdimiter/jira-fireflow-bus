@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.14
+
+- Recognize FireFlow's **Mark Change Request as Already Works** result from the explicit
+  `MatchStatus` transaction retained in read-only RT History, even though the modern API
+  exposes the final request only as `resolved` without validation results.
+- Move the linked Jira work item to `Done` for that proven outcome while continuing to fail
+  closed for unresolved or unverified `resolved` requests.
+- Migrate existing Basic deployments automatically without changing secrets or enabling
+  Jira-to-FireFlow writes.
+
 ## 0.3.13
 
 - Prevent duplicate global Forge deployments from blocking Jira issue creation by keeping

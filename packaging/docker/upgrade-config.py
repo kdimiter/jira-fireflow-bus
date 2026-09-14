@@ -67,6 +67,23 @@ def migrate(settings):
     if not isinstance(reverse, dict):
         raise ValueError('jira_to_fireflow must be an object')
     fireflow.setdefault('legacy_rt_enabled', False)
+    if fireflow.get('template') == 'Basic Change Traffic Request':
+        fireflow.setdefault('legacy_rt_read_enabled', True)
+        mirror = settings.get('mirror')
+        if isinstance(mirror, dict):
+            transitions = mirror.get('transitions')
+            if (isinstance(transitions, dict)
+                    and transitions.get('already works') == 'To Do'):
+                transitions['already works'] = 'Done'
+            rules = mirror.get('outcome_rules')
+            already_works = {
+                'status': 'resolved',
+                'field': 'Completion outcome',
+                'equals': 'already works',
+                'transition': 'Done',
+            }
+            if isinstance(rules, list) and already_works not in rules:
+                rules.append(already_works)
     return settings
 
 
