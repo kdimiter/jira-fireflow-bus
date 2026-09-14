@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.13
+
+- Prevent duplicate global Forge deployments from blocking Jira issue creation by keeping
+  validation in the field UI and object schema instead of a cross-deployment manifest expression.
+- Submit the Forge field once through Jira's normal custom-field lifecycle, avoiding the false
+  "created with exceptions" result caused by proactive draft submissions.
+- Return the prepared work item layout URL and pause guided setup until the structured request
+  field is placed in Description fields and FireFlow result fields remain in Context fields.
+
 ## 0.3.12
 
 - Persist valid Forge field drafts directly through the Jira submit bridge in create-like dialogs and keep standard blur submission enabled, so Jira validates the current structured value when Create is clicked.
