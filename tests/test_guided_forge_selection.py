@@ -74,6 +74,12 @@ class GuidedForgeSelectionTests(unittest.TestCase):
         self.assertIn('Context fields', self.script)
         self.assertNotIn('/rest/internal/', self.script)
 
+    def test_guided_setup_selects_one_workflow_profile_for_jira_and_runtime(self):
+        self.assertIn("--title 'Jira workflow' --menu", self.script)
+        self.assertIn("compact '4 states: To Do, In Work, Done, Rejected / Cancelled'", self.script)
+        self.assertIn("full '9 states mirroring the complete FireFlow process'", self.script)
+        self.assertGreaterEqual(self.script.count('--workflow-profile "$WORKFLOW_PROFILE"'), 2)
+
 
 if __name__ == '__main__':
     unittest.main()

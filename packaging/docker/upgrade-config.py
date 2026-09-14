@@ -75,6 +75,18 @@ def migrate(settings):
             if (isinstance(transitions, dict)
                     and transitions.get('already works') == 'To Do'):
                 transitions['already works'] = 'Done'
+            old_compact = {
+                'new': 'To Do',
+                'open': 'In Work',
+                'plan': 'In Work',
+                'rejected': 'Rejected / Cancelled',
+                'cancelled': 'Rejected / Cancelled',
+            }
+            if (isinstance(transitions, dict)
+                    and all(transitions.get(name) == target
+                            for name, target in old_compact.items())):
+                transitions['open'] = 'To Do'
+                transitions['plan'] = 'To Do'
             rules = mirror.get('outcome_rules')
             already_works = {
                 'status': 'resolved',

@@ -34,3 +34,25 @@ class Structured(unittest.TestCase):
         self.assertEqual(len(request['traffic']), 2)
         self.assertEqual(request['traffic'][0]['source']['items'], [{'address': '203.0.113.0/24'}])
         self.assertIn({'name': 'Change Request Description', 'values': ['Business need']}, request['fields'])
+
+    def test_hostname_uses_fireflow_named_traffic_item(self):
+        from algosec_jira_bus.sync import build
+        raw = {
+            'schemaVersion': 1,
+            'justification': 'Business need',
+            'changeType': 'Allow',
+            'trafficLines': [{
+                'source': {'kind': 'ip', 'value': '192.0.2.10'},
+                'destination': {'kind': 'hostname', 'value': 'app.example.local'},
+                'services': [{'kind': 'port', 'protocol': 'tcp', 'port': 443}],
+            }],
+        }
+
+        _key, request = build(
+            {'key': 'NET-1', 'fields': {'customfield_1': raw}},
+            {'structured': {'field': 'customfield_1'}}, 'Basic', ['device'])
+
+        line = request['traffic'][0]
+        self.assertEqual(line['source']['items'], [{'address': '192.0.2.10'}])
+        self.assertEqual(line['destination']['items'],
+                         [{'name': 'app.example.local'}])

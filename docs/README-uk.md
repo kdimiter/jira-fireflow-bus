@@ -14,6 +14,8 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 `--guided` встановлює залежності й Docker, готує Node.js 22 і Forge CLI, розгортає або
 повторно використовує Forge App, створює Jira Space/work type/поля, налаштовує FireFlow та
 запускає готовий контейнер. Git checkout і збирання образу на сервері не потрібні.
+Під час інсталяції майстер пропонує Jira workflow **Compact** (4 стани) або **Full**
+(повні Plan, Approve, Implement, Validate і Match) та автоматично вибирає відповідну мапу шини.
 
 Після встановлення:
 

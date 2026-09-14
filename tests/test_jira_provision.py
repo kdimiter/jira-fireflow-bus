@@ -11,12 +11,26 @@ from algosec_jira_bus.jira_provision import (
     _page_values,
     _read_credentials,
     _structured_forge_field,
+    workflow_profile,
     ensure_space,
     prepare_jira,
 )
 
 
 class JiraProvisionTests(unittest.TestCase):
+    def test_workflow_profiles_offer_full_and_compact_shapes(self):
+        compact = workflow_profile('compact')
+        full = workflow_profile('full')
+        self.assertEqual([name for name, _category in compact['statuses']],
+                         ['To Do', 'In Work', 'Done', 'Rejected / Cancelled'])
+        self.assertEqual([name for name, _category in full['statuses']],
+                         ['To Do', 'Plan', 'Approve', 'Implement', 'Validate',
+                          'Match', 'Done', 'Rejected', 'Cancelled'])
+        self.assertNotEqual(compact['workflow_suffix'], full['workflow_suffix'])
+        self.assertNotEqual(compact['scheme_suffix'], full['scheme_suffix'])
+        with self.assertRaisesRegex(JiraProvisionError, 'workflow profile'):
+            workflow_profile('other')
+
     def test_reads_owner_only_setup_credentials(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -224,6 +238,17 @@ class JiraProvisionTests(unittest.TestCase):
                 issue_type_schemes.append(item)
                 issue_type_scheme_items[scheme_id] = list(kwargs['body']['issueTypeIds'])
                 return {'issueTypeSchemeId': scheme_id}
+            if (path.startswith('/rest/api/3/issuetypescheme/')
+                    and kwargs.get('method') == 'PUT'):
+                scheme_id = path.rsplit('/', 1)[-1]
+                scheme = next(item for item in issue_type_schemes
+                              if item['id'] == scheme_id)
+                scheme.update({
+                    'name': kwargs['body']['name'],
+                    'description': kwargs['body'].get('description', ''),
+                    'defaultIssueTypeId': kwargs['body']['defaultIssueTypeId'],
+                })
+                return None
             if path.endswith('/issuetype') and kwargs.get('method') == 'PUT':
                 return None
             if path == '/rest/api/3/search/jql':
@@ -459,7 +484,8 @@ class JiraProvisionTests(unittest.TestCase):
 
         result = prepare_jira(call, apply=True, project_key='BASIC',
                               project_name='Basic Requests',
-                              issue_type_name='Basic Network Request')
+                              issue_type_name='Basic Network Request',
+                              workflow_profile_name='compact')
 
         issue_type_body = next(options['body'] for path, options in calls
                                if path == '/rest/api/3/issuetype'
@@ -485,12 +511,11 @@ class JiraProvisionTests(unittest.TestCase):
         categories = {item['name']: item['statusCategory']
                       for item in payload['statuses']}
         self.assertEqual(categories, {
-            'To Do': 'TODO', 'Plan': 'IN_PROGRESS',
-            'Approve': 'IN_PROGRESS', 'Implement': 'IN_PROGRESS',
-            'Validate': 'IN_PROGRESS', 'Match': 'IN_PROGRESS',
-            'Done': 'DONE', 'Rejected': 'DONE', 'Cancelled': 'DONE',
+            'To Do': 'TODO', 'In Work': 'IN_PROGRESS',
+            'Done': 'DONE', 'Rejected / Cancelled': 'DONE',
         })
-        self.assertNotIn('Review', categories)
+        self.assertNotIn('Approve', categories)
+        self.assertNotIn('Implement', categories)
         references = {item['statusReference']: item['name']
                       for item in payload['statuses']}
         transitions = {(item['name'], item['type'],
@@ -577,6 +602,43 @@ class JiraProvisionTests(unittest.TestCase):
 
         with self.assertRaisesRegex(JiraProvisionError, 'unexpected work types'):
             prepare_jira(call, apply=True)
+
+    def test_existing_work_type_scheme_repairs_wrong_default_type(self):
+        base_call, calls = self.fixture({
+            'id': '10001', 'key': 'ALGO', 'name': 'AlgoSec',
+            'issueTypes': [], 'simplified': False})
+        first = prepare_jira(base_call, apply=True)
+        calls.clear()
+        wrong_default = True
+
+        def call(path, **options):
+            nonlocal wrong_default
+            result = base_call(path, **options)
+            if (path == '/rest/api/3/issuetypescheme'
+                    and options.get('method') != 'POST' and wrong_default):
+                result = copy.deepcopy(result)
+                for item in result['values']:
+                    if item.get('id') == first['issue_type_scheme_id']:
+                        item['defaultIssueTypeId'] = '19999'
+            if (path == '/rest/api/3/issuetypescheme/'
+                    + first['issue_type_scheme_id']
+                    and options.get('method') == 'PUT'):
+                wrong_default = False
+            return result
+
+        second = prepare_jira(call, apply=True)
+
+        updates = [options['body'] for path, options in calls
+                   if path == ('/rest/api/3/issuetypescheme/'
+                               + first['issue_type_scheme_id'])
+                   and options.get('method') == 'PUT']
+        self.assertEqual(updates, [{
+            'name': 'ALGO Jira-FireFlow Work Type Scheme',
+            'description': 'Managed by jira-fireflow-bus prepare-jira.sh',
+            'defaultIssueTypeId': first['issue_type_id'],
+        }])
+        self.assertEqual(second['issue_type_scheme_id'],
+                         first['issue_type_scheme_id'])
 
     def test_nonempty_space_refuses_automatic_workflow_migration(self):
         base_call, calls = self.fixture({
@@ -950,4 +1012,4 @@ class JiraProvisionTests(unittest.TestCase):
         prepare.assert_called_once_with(
             unittest.mock.ANY, apply=True, project_key='CUSTOM',
             project_name='Custom Space', issue_type_name='Custom Network Request',
-            forge_app_id=None)
+            forge_app_id=None, workflow_profile_name='full')

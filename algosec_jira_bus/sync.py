@@ -251,8 +251,6 @@ def build(issue, mapping, template, devices, jira_origin=None):
             raise MappingError('Invalid structured request: %s' % error) from None
         traffic = []
         for row in domain['lines']:
-            if any(row[side]['kind'] == 'hostname' for side in ('source', 'destination')):
-                raise MappingError('Hostname transport is not verified for the installed adapter')
             traffic.append(line_of([row['source']['value']], [row['destination']['value']],
                                    row['services'], domain['action']))
     elif mapping.get('table'):

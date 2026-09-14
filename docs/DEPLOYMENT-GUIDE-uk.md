@@ -49,10 +49,10 @@ sh scripts/setup-forge.sh
 
 Рекомендований `prepare-jira.sh` створює або знаходить **company-managed** Space, додає вибраний
 standard work type, потрібні поля й окремі work type, screen, field-configuration та workflow
-schemes через Jira API. Окрема work type scheme містить лише вибраний інтеграційний тип. Для
-нього helper створює Basic workflow `To Do → Plan → Approve → Implement → Validate → Match → Done` з
-альтернативними кінцевими статусами `Rejected` і `Cancelled`. `Review` не входить до Basic:
-цей етап використовується у FireFlow Multi-Approval і Parallel-Approval. Якщо політика замовника
+schemes через Jira API. Окрема work type scheme містить лише вибраний інтеграційний тип.
+Профіль `compact` створює `To Do → In Work → Done | Rejected / Cancelled`; профіль `full`
+створює окремі Plan, Approve, Implement, Validate, Match, Done, Rejected і Cancelled.
+Guided installer показує цей вибір і застосовує ту саму мапу в контейнері. Якщо політика замовника
 вимагає ручного **team-managed** project, використайте візуальний додаток А після встановлення
 Forge app.
 
@@ -240,16 +240,21 @@ token, deploy та install. Для нового app майстер
 Після цього він виконує створення Jira Space і
 work type, повної форми Basic network request, трьох полів результату та окремих work type,
 screen, field-configuration і workflow schemes, а потім конфігурацію Docker-шини. Окрема work
-type scheme містить лише вибраний інтеграційний тип. Автоматичне призначення схем виконується
+type scheme містить лише вибраний інтеграційний тип і робить його типовим у вікні Create. Повторний
+запуск відновлює цей default, якщо його змінили в Jira. Автоматичне призначення схем виконується
 лише для порожнього Space; якщо заявки вже існують і потрібна міграція, майстер зупиняється.
-Створений workflow:
+Майстер пропонує два Jira workflow:
 
 ```text
-To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
+Compact: To Do -> In Work -> Done | Rejected / Cancelled
+Full:    To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
+                                                       \-> Rejected | Cancelled
 ```
 
-`Rejected` і `Cancelled` є кінцевими альтернативами. `Review` не додається, тому що не є етапом
-Basic workflow. Mac і окремий checkout repository не потрібні.
+У Compact Jira-картка залишається в `To Do` під час `open` і `plan`, переходить до
+`In Work` лише коли FireFlow доходить до `approve`; у Full етапи показуються
+окремо. Точний поточний стан завжди записується в FireFlow Status і коментар. Mac і окремий
+checkout repository не потрібні.
 Jira administrator email і token вводяться один раз та зберігаються лише у тимчасових файлах
 із правами `0700/0600` на час discovery і Jira preparation. Вибраний App ID передається в
 `prepare-jira.sh`, тому development і production копії однойменного поля не плутаються.
@@ -302,8 +307,8 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run --prepare-only
 sudo prepare-fireflow.sh --base-url https://ASMS-HOST --apply
 sudo create-jira-space.sh --base-url https://TENANT.atlassian.net --space-key ALGO --space-name "AlgoSec" --apply
 # Після встановлення repository Forge app:
-sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --space-key ALGO --space-name "AlgoSec" --work-type-name "AlgoSec Network Access" --apply
-sudo sh algosec-jira-bus-latest-docker-amd64.run
+sudo prepare-jira.sh --base-url https://TENANT.atlassian.net --space-key ALGO --space-name "AlgoSec" --work-type-name "AlgoSec Network Access" --workflow-profile compact --apply
+sudo sh algosec-jira-bus-latest-docker-amd64.run --workflow-profile compact
 ```
 
 FireFlow API автентифікує інтеграцію за **username/password** і видає тимчасовий
@@ -350,8 +355,9 @@ Work type scheme містить лише вибраний інтеграційн
 workflow schemes виконується лише для порожнього Space; якщо в ньому вже є заявки і потрібна
 міграція, helper відмовляється її виконувати. Forge-поле стає
 видимим і обов'язковим, а FireFlow Request ID, Status та Owner — видимими й необов'язковими.
-Workflow має основний шлях `To Do → Plan → Approve → Implement → Validate → Match → Done` і
-кінцеві альтернативи `Rejected` та `Cancelled`; `Review` не входить до Basic. Спільні **Default
+Передайте `--workflow-profile compact` для 4 станів або `--workflow-profile full` для повних
+етапів; без параметра ручний helper використовує `full`. Guided installer питає профіль у меню.
+Спільні **Default
 Field Configuration** та схеми інших Space не змінюються. Якщо не передавати
 назви параметрами, helper послідовно запитає **Jira Space key**, **Jira Space name** і
 **Jira work type name**. Обидва Jira helpers приймають `--space-key`/`--space-name`; старі
@@ -403,7 +409,7 @@ sudo bus_conf --jira-sync
 Приклад для workflow з повторним відкриттям і двома кінцевими станами:
 
 ```text
-To Do=open, Reopened=open, Done=resolved, Closed=resolved, Cancelled=cancelled
+To Do=open, Done=resolved, Rejected / Cancelled=cancelled
 ```
 
 Назви ліворуч мають точно відповідати статусам Jira. Значення праворуч — внутрішні статуси
@@ -618,13 +624,14 @@ Native secrets: `/etc/algosec-jira-bus/secrets.env`, режим `0600`, влас
 
 ![Початкові Jira статуси](screenshots/18-space-initial-statuses.png)
 
-До запуску шини додайте статуси `Plan`, `Approve`, `Implement`, `Validate`, `Match`, `Rejected`
-і `Cancelled`, залишивши також `To Do` та `Done`. Створіть переходи
+Для ручного Compact-профілю залиште або додайте статуси `To Do`, `In Work`, `Done` і
+`Rejected / Cancelled`. Створіть переходи
 з такими самими назвами з будь-якого статусу до відповідного цільового статусу. Саме ці
-назви використовує `examples/jira-sync-basic-structured.json`; без них зворотне оновлення
-статусів із FireFlow не працюватиме. Якщо team-managed project не дозволяє відтворити цю
-схему, використайте company-managed project і `prepare-jira.sh`. Не додавайте `Review` для
-Basic network request: цей статус потрібен лише Multi-Approval та Parallel-Approval workflows.
+назви використовує `examples/jira-sync-basic-structured-compact.json`; без них зворотне оновлення
+статусів із FireFlow не працюватиме. Стани `new`, `open` і `plan` відображаються як
+`To Do`; `approve` та наступні робочі етапи — як `In Work`,
+а точний стан читається з FireFlow Status. Якщо team-managed project не дозволяє відтворити цю
+схему, використайте company-managed project і `prepare-jira.sh`.
 
 ### А.3. Перевірте Details і Access
 

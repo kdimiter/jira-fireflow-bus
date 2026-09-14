@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Keep compact Jira requests in `To Do` while FireFlow is `new`, `open`, or
+  `plan`; move them to `In Work` only when FireFlow reaches `approve` or a
+  later active stage. Docker upgrades migrate the previous compact mapping
+  without changing secrets.
+- Add a compact Jira workflow with `To Do`, `In Work`, `Done`, and
+  `Rejected / Cancelled`. FireFlow keeps the complete Basic approval lifecycle and reports its
+  precise status through the result field and comments.
+- Keep the dedicated network-access work type as the Jira Space default on repeat preparation,
+  preventing a drifted `Task` default from opening the Forge field on an incompatible form.
+- Send structured Jira hostname endpoints as FireFlow named traffic items, matching the
+  documented Source and Destination REST contract.
+
 ## 0.3.14
 
 - Recognize FireFlow's **Mark Change Request as Already Works** result from the explicit

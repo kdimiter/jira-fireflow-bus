@@ -272,10 +272,18 @@ while :; do
     [ -n "$WORK_TYPE" ] && break
     message 'Required value' 'Work type name cannot be empty.'
 done
+WORKFLOW_PROFILE=$(whiptail --title 'Jira workflow' --menu \
+    'Choose how much of the FireFlow process Jira should display.' \
+    15 92 2 \
+    compact '4 states: To Do, In Work, Done, Rejected / Cancelled' \
+    full '9 states mirroring the complete FireFlow process' \
+    3>&1 1>&2 2>&3) || cancelled
+case "$WORKFLOW_PROFILE" in compact|full) ;; *) echo 'Invalid Jira workflow profile.' >&2; exit 1;; esac
 
 SUMMARY="Jira: $JIRA_URL
 Space: $SPACE_KEY — $SPACE_NAME
 Work type: $WORK_TYPE
+Workflow: $WORKFLOW_PROFILE
 Forge action: $FORGE_SELECTION
 Linux owner: $OPERATOR
 
@@ -364,7 +372,8 @@ JIRA_PREPARATION_RESULT=$(mktemp /tmp/algosec-jira-preparation.XXXXXX)
 /usr/local/sbin/prepare-jira.sh --credentials-dir "$ADMIN_CREDENTIALS" \
     --base-url "$JIRA_URL" --space-key "$SPACE_KEY" \
     --space-name "$SPACE_NAME" --work-type-name "$WORK_TYPE" \
-    --forge-app-id "$APP_ID" --apply > "$JIRA_PREPARATION_RESULT"
+    --forge-app-id "$APP_ID" --workflow-profile "$WORKFLOW_PROFILE" \
+    --apply > "$JIRA_PREPARATION_RESULT"
 cat "$JIRA_PREPARATION_RESULT"
 LAYOUT_URL=$(python3 - "$JIRA_PREPARATION_RESULT" <<'PY'
 import json, sys
@@ -389,7 +398,7 @@ message 'Stage 4 of 4' \
     'The final wizard will ask for the runtime Jira token, FireFlow URL and password, TLS trust choice and synchronization confirmation.'
 sh "$HERE/install-docker.sh" --image-archive "$IMAGE_ARCHIVE" \
     --image-sha256 "$IMAGE_SHA256" --data-dir "$DATA" \
-    --forge-app-id "$APP_ID"
+    --forge-app-id "$APP_ID" --workflow-profile "$WORKFLOW_PROFILE"
 
 message 'Installation complete' \
     'Forge, Jira preparation and the Docker bus completed. Verify with: sudo docker logs --tail 100 algosec-jira-bus'
