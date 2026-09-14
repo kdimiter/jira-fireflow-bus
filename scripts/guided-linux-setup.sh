@@ -289,10 +289,12 @@ sh "$HERE/install-docker.sh" --image-archive "$IMAGE_ARCHIVE" \
 
 WORK=
 CREDENTIALS=
+JIRA_PREPARATION_RESULT=
 cleanup() {
     [ -z "$WORK" ] || rm -rf "$WORK"
     [ -z "$CREDENTIALS" ] || rm -rf "$CREDENTIALS"
     rm -rf "$ADMIN_CREDENTIALS" "$DISCOVERY"
+    [ -z "$JIRA_PREPARATION_RESULT" ] || rm -f "$JIRA_PREPARATION_RESULT"
     FORGE_TOKEN=
     JIRA_ADMIN_TOKEN=
 }
@@ -358,11 +360,30 @@ fi
 
 message 'Stage 3 of 4' \
     'Jira preparation will now reuse the temporary administrator credentials, verify the selected Forge App ID and prepare the Space, work type, workflow and fields.'
+JIRA_PREPARATION_RESULT=$(mktemp /tmp/algosec-jira-preparation.XXXXXX)
 /usr/local/sbin/prepare-jira.sh --credentials-dir "$ADMIN_CREDENTIALS" \
     --base-url "$JIRA_URL" --space-key "$SPACE_KEY" \
     --space-name "$SPACE_NAME" --work-type-name "$WORK_TYPE" \
-    --forge-app-id "$APP_ID" --apply
+    --forge-app-id "$APP_ID" --apply > "$JIRA_PREPARATION_RESULT"
+cat "$JIRA_PREPARATION_RESULT"
+LAYOUT_URL=$(python3 - "$JIRA_PREPARATION_RESULT" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding='utf-8') as stream:
+    result = json.load(stream)
+print(result['issue_layout']['url'])
+PY
+)
 rm -rf "$ADMIN_CREDENTIALS"
+
+printf '%s\n' "Required Jira layout step: $LAYOUT_URL" >&2
+printf '%s\n' \
+    'Move Мережеві доступи AlgoSec to Description fields; keep FireFlow result fields in Context fields; then Save changes.' >&2
+whiptail --title 'Jira work item layout' --yesno \
+    "Jira Cloud does not provide a public API for this visual placement.\n\nOpen:\n$LAYOUT_URL\n\nMove Мережеві доступи AlgoSec to Description fields. Keep FireFlow Request ID, FireFlow Status and FireFlow Owner in Context fields. Select Save changes, then return here and choose Yes." \
+    20 96 || {
+        echo 'Complete the Jira work item layout before enabling synchronization.' >&2
+        exit 1
+    }
 
 message 'Stage 4 of 4' \
     'The final wizard will ask for the runtime Jira token, FireFlow URL and password, TLS trust choice and synchronization confirmation.'

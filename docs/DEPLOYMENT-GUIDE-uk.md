@@ -99,6 +99,14 @@ sh scripts/setup-forge.sh
 
 Для **company-managed** проєкту Jira administrator відкриває **Settings → Work items → Screens → потрібний екран → ⋯ → Configure** і додає **Мережеві доступи AlgoSec** через **Select field**. Перевірте екрани Create/Edit/View, які screen scheme призначає саме типу Network Access, і контекст поля для цього проєкту/типу. Після цього розмістіть поле в основній частині work item layout. [Atlassian: налаштування екранів](https://support.atlassian.com/jira-cloud-administration/docs/add-a-custom-field-to-a-screen).
 
+`prepare-jira.sh` повертає точне `issue_layout.url` для створеного екрана, а guided installer
+показує його окремим обов'язковим кроком. Відкрийте посилання, перенесіть
+**Мережеві доступи AlgoSec** до **Description fields**, залиште **FireFlow Request ID**,
+**FireFlow Status** і **FireFlow Owner** у **Context fields**, натисніть **Save changes** і лише
+тоді підтвердьте продовження інсталятора. Jira Cloud не публікує REST-операцію для переміщення
+між цими секціями; вони налаштовуються окремо для кожного Space, тому helper не використовує
+нестабільний `/rest/internal/` endpoint. [Atlassian: work item layout](https://support.atlassian.com/jira-cloud-administration/docs/configure-issue-layout/).
+
 #### 3. Вручну створіть три поля результату
 
 Для **team-managed** простору:

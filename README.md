@@ -134,6 +134,10 @@ Space on later runs. Omit `--apply` for a read-only validation. Both Jira helper
 When these options are omitted, the helpers prompt for their values. `prepare-jira.sh` also
 prompts for a work type name; `--work-type-name` selects it non-interactively. Use a unique
 name when the tenant already contains duplicate `Network Access` work types.
+The result includes a direct `issue_layout.url`. Open it once, move **Мережеві доступи
+AlgoSec** to **Description fields**, keep the three FireFlow result fields in **Context fields**,
+and save. Jira Cloud exposes this visual placement only in its administrator UI, so the guided
+installer pauses for this step instead of using an unsupported internal endpoint.
 
 On a clean Ubuntu/Debian or RHEL/Rocky/AlmaLinux host, the verified `.run` installer
 installs Python 3 and Docker Engine from the OS and official Docker repositories when they are
@@ -418,6 +422,12 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run
 керовані ним об'єкти. Він також створює та призначає окремі work type і workflow schemes для
 цього інтеграційного типу та не змінює схеми інших Space. Якщо Space уже містить заявки,
 helper відмовляється виконувати потрібну автоматичну міграцію схем.
+
+У JSON-результаті helper повертає пряме `issue_layout.url`. Один раз відкрийте його,
+перенесіть **Мережеві доступи AlgoSec** до **Description fields**, залиште FireFlow Request ID,
+Status і Owner у **Context fields** та збережіть. Jira Cloud не має публічного API для цього
+візуального розміщення, тому guided installer зупиняється на цьому кроці й чекає підтвердження,
+а не викликає нестабільний внутрішній endpoint.
 
 ## TLS і зберігання секретів
 

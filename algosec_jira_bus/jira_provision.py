@@ -995,7 +995,18 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
         'workflow_id': workflow['workflow_id'],
         'workflow_name': workflow['workflow_name'],
         'workflow_scheme_id': workflow['workflow_scheme_id'],
-        'manual': [],
+        'issue_layout': {
+            'path': ('/plugins/servlet/project-config/' + project_key
+                     + '/issuelayout?screenId=' + screen_id),
+            'structured_field_section': 'Description fields',
+            'result_field_section': 'Context fields',
+            'automatic': False,
+        },
+        'manual': [
+            'Move Мережеві доступи AlgoSec to Description fields; keep FireFlow '
+            'Request ID, FireFlow Status and FireFlow Owner in Context fields; '
+            'then save the work item layout.',
+        ],
     }
 
 
@@ -1056,6 +1067,9 @@ def main(argv=None):
                               project_key=project_key, project_name=project_name,
                               issue_type_name=issue_type_name,
                               forge_app_id=args.forge_app_id)
+        layout = result.get('issue_layout')
+        if isinstance(layout, dict) and isinstance(layout.get('path'), str):
+            layout['url'] = base_url + layout['path']
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result.get('ready') else 2
 
