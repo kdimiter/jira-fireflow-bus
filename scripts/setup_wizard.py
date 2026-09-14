@@ -22,11 +22,38 @@ from algosec_jira_bus.console import prompt
 
 
 MAX_PRIVATE_TEXT_BYTES = 1024 * 1024
-DEFAULT_JIRA_STATUS_MAP = {
-    'To Do': 'open',
-    'Done': 'resolved',
-    'Rejected / Cancelled': 'cancelled',
+DEFAULT_JIRA_STATUS_MAPS = {
+    'full': {
+        'To Do': 'open', 'Done': 'resolved', 'Rejected': 'rejected',
+        'Cancelled': 'cancelled',
+    },
+    'compact': {
+        'To Do': 'open', 'Done': 'resolved',
+        'Rejected / Cancelled': 'cancelled',
+    },
 }
+
+
+def workflow_template_path(source, profile):
+    """Resolve a packaged workflow template from a validated profile name."""
+    names = {
+        'full': 'jira-sync-basic-structured.json',
+        'compact': 'jira-sync-basic-structured-compact.json',
+    }
+    if profile not in names:
+        raise ValueError('Unknown Jira workflow profile')
+    return Path(source) / 'examples' / names[profile]
+
+
+def default_jira_status_map(settings):
+    profile = settings.get('workflow_profile')
+    if profile is None:
+        transitions = settings.get('mirror', {}).get('transitions', {})
+        profile = ('compact' if isinstance(transitions, dict)
+                   and 'Rejected / Cancelled' in transitions.values() else 'full')
+    if profile not in DEFAULT_JIRA_STATUS_MAPS:
+        raise ValueError('Unknown Jira workflow profile in configuration')
+    return dict(DEFAULT_JIRA_STATUS_MAPS[profile])
 
 
 def validate_secret_references(settings):
@@ -148,7 +175,8 @@ def configure_jira_to_fireflow(config, settings, account):
                                bool(current.get('status_map', True)))
         existing_map = current.get('status_map')
         status_map = (dict(existing_map) if statuses and isinstance(existing_map, dict)
-                      and existing_map else dict(DEFAULT_JIRA_STATUS_MAP) if statuses else {})
+                      and existing_map else default_jira_status_map(settings)
+                      if statuses else {})
         if statuses:
             default_map = ', '.join('%s=%s' % item for item in status_map.items())
             status_map = status_mapping(ask(
@@ -160,7 +188,7 @@ def configure_jira_to_fireflow(config, settings, account):
         comments = current.get('comments', True) is not False
         status_map = current.get('status_map')
         if not isinstance(status_map, dict):
-            status_map = dict(DEFAULT_JIRA_STATUS_MAP)
+            status_map = default_jira_status_map(settings)
     settings['jira_to_fireflow'] = {
         'enabled': enabled,
         'comments': comments,
@@ -451,6 +479,7 @@ def main():
                         help='Configure Jira to FireFlow status and comment synchronization')
     parser.add_argument('--forge-app-id',
                         help='use the selected production Forge app field')
+    parser.add_argument('--workflow-profile', choices=('full', 'compact'))
     args = parser.parse_args()
     if sys.platform != 'linux' or (not args.container and os.geteuid() != 0):
         raise ValueError('Run on Linux as root')
@@ -468,6 +497,10 @@ def main():
         existing = private_json(config, account.pw_uid)
     except FileNotFoundError:
         existing = {}
+    selected_workflow_profile = (args.workflow_profile
+                                 or existing.get('workflow_profile') or 'full')
+    if selected_workflow_profile not in DEFAULT_JIRA_STATUS_MAPS:
+        raise ValueError('Unknown Jira workflow profile in existing configuration')
     validate_secret_references(existing)
     configured = existing.get('mapping', {}).get('structured') and 'YOUR-' not in existing.get('jira', {}).get('base_url', '')
     if args.refresh_certificate:
@@ -514,11 +547,12 @@ def main():
         existing_ca_file)
     print('FireFlow-supported device tree names discovered:', len(devices))
     template = json.loads(read_regular_text(
-        args.source / 'examples/jira-sync-basic-structured.json'))
+        workflow_template_path(args.source, selected_workflow_profile)))
     settings = build_config(
         template, url, email, project, worktype, ff_url, ff_user, devices, pin,
         fields, trust_server_certificate=trust_server_certificate,
         existing_ca_file=existing_ca_file)
+    settings['workflow_profile'] = selected_workflow_profile
     secrets = (json.dumps({'JIRA_API_TOKEN': token, 'ASMS_API_PASSWORD': password}) + '\n' if args.container
                else secret_line('JIRA_API_TOKEN', token) + secret_line('ASMS_API_PASSWORD', password))
     # Preserve original installer placeholders, too; never replace silently on a rerun.

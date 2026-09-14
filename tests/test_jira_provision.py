@@ -11,12 +11,26 @@ from algosec_jira_bus.jira_provision import (
     _page_values,
     _read_credentials,
     _structured_forge_field,
+    workflow_profile,
     ensure_space,
     prepare_jira,
 )
 
 
 class JiraProvisionTests(unittest.TestCase):
+    def test_workflow_profiles_offer_full_and_compact_shapes(self):
+        compact = workflow_profile('compact')
+        full = workflow_profile('full')
+        self.assertEqual([name for name, _category in compact['statuses']],
+                         ['To Do', 'In Work', 'Done', 'Rejected / Cancelled'])
+        self.assertEqual([name for name, _category in full['statuses']],
+                         ['To Do', 'Plan', 'Approve', 'Implement', 'Validate',
+                          'Match', 'Done', 'Rejected', 'Cancelled'])
+        self.assertNotEqual(compact['workflow_suffix'], full['workflow_suffix'])
+        self.assertNotEqual(compact['scheme_suffix'], full['scheme_suffix'])
+        with self.assertRaisesRegex(JiraProvisionError, 'workflow profile'):
+            workflow_profile('other')
+
     def test_reads_owner_only_setup_credentials(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -459,7 +473,8 @@ class JiraProvisionTests(unittest.TestCase):
 
         result = prepare_jira(call, apply=True, project_key='BASIC',
                               project_name='Basic Requests',
-                              issue_type_name='Basic Network Request')
+                              issue_type_name='Basic Network Request',
+                              workflow_profile_name='compact')
 
         issue_type_body = next(options['body'] for path, options in calls
                                if path == '/rest/api/3/issuetype'
@@ -949,4 +964,4 @@ class JiraProvisionTests(unittest.TestCase):
         prepare.assert_called_once_with(
             unittest.mock.ANY, apply=True, project_key='CUSTOM',
             project_name='Custom Space', issue_type_name='Custom Network Request',
-            forge_app_id=None)
+            forge_app_id=None, workflow_profile_name='full')

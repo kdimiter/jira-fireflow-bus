@@ -45,8 +45,29 @@ class SetupWizardTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'no unique production field'):
             wizard.choose_structured_field(fields, app_id)
 
-    def test_fresh_reverse_status_map_matches_the_basic_workflow(self):
-        self.assertEqual(wizard.DEFAULT_JIRA_STATUS_MAP, {
+    def test_fresh_reverse_status_maps_match_both_workflow_profiles(self):
+        self.assertEqual(wizard.DEFAULT_JIRA_STATUS_MAPS['compact'], {
+            'To Do': 'open', 'Done': 'resolved',
+            'Rejected / Cancelled': 'cancelled',
+        })
+        self.assertEqual(wizard.DEFAULT_JIRA_STATUS_MAPS['full'], {
+            'To Do': 'open', 'Done': 'resolved', 'Rejected': 'rejected',
+            'Cancelled': 'cancelled',
+        })
+
+    def test_workflow_template_path_selects_compact_or_full(self):
+        source = Path('/opt/source')
+        self.assertEqual(wizard.workflow_template_path(source, 'full'),
+                         source / 'examples/jira-sync-basic-structured.json')
+        self.assertEqual(wizard.workflow_template_path(source, 'compact'),
+                         source / 'examples/jira-sync-basic-structured-compact.json')
+        with self.assertRaises(ValueError):
+            wizard.workflow_template_path(source, 'unknown')
+
+    def test_legacy_compact_configuration_keeps_its_reverse_status_map(self):
+        settings = {'mirror': {'transitions': {
+            'cancelled': 'Rejected / Cancelled'}}}
+        self.assertEqual(wizard.default_jira_status_map(settings), {
             'To Do': 'open', 'Done': 'resolved',
             'Rejected / Cancelled': 'cancelled',
         })
@@ -61,7 +82,7 @@ class SetupWizardTests(unittest.TestCase):
         }
         answers = iter(('Y', 'Y', 'Y',
                         ', '.join('%s=%s' % item
-                                  for item in wizard.DEFAULT_JIRA_STATUS_MAP.items())))
+                                  for item in wizard.DEFAULT_JIRA_STATUS_MAPS['compact'].items())))
         account = SimpleNamespace(pw_uid=1, pw_gid=2)
         with patch.object(wizard, 'ask', side_effect=lambda *_a, **_k: next(answers)), \
              patch.object(wizard, 'write_private') as write:

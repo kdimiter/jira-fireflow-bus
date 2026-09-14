@@ -63,17 +63,18 @@ Forge CLI under the selected non-root operator, registers and installs the app, 
 a company-managed Jira Space with the chosen standard work type. That work type receives the Forge Basic network
 request field, the optional FireFlow Request ID, FireFlow Status and FireFlow Owner result
 fields, and dedicated work type, screen, field-configuration and workflow schemes. The dedicated
-work type scheme contains only the selected integration type. Jira uses a compact four-state
-view while FireFlow retains its complete Basic lifecycle:
+work type scheme contains only the selected integration type. The installer asks which Jira
+workflow profile to create and configures the bus with the same profile:
 
 ```text
-To Do -> In Work -> Done
-                  -> Rejected / Cancelled
+Compact: To Do -> In Work -> Done | Rejected / Cancelled
+Full:    To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
+                                                       \-> Rejected | Cancelled
 ```
 
-All nonterminal FireFlow stages map to `In Work`; the exact status remains visible in the
-FireFlow Status field and Jira comments. A Jira transition to `Rejected / Cancelled` sends
-`cancelled` to FireFlow when reverse status synchronization is enabled. The wizard then validates
+Compact maps all nonterminal FireFlow stages to `In Work`; Full displays the process stages
+separately. The exact FireFlow status remains visible in the FireFlow Status field and Jira
+comments in both profiles. The wizard then validates
 and starts the Docker bus. Jira administrator credentials are entered once,
 kept only in owner-only temporary files for discovery and preparation, and deleted afterward.
 Forge credentials are requested only when deployment is needed. Runtime Jira and FireFlow secrets
@@ -112,8 +113,8 @@ sudo create-jira-space.sh --base-url https://TENANT.atlassian.net \
 # Prepare its work type, fields and screens:
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net \
   --space-key ALGO --space-name "AlgoSec" \
-  --work-type-name "AlgoSec Network Access" --apply
-sudo sh algosec-jira-bus-latest-docker-amd64.run
+  --work-type-name "AlgoSec Network Access" --workflow-profile compact --apply
+sudo sh algosec-jira-bus-latest-docker-amd64.run --workflow-profile compact
 ```
 
 The `.sh` helpers run through the bundled Docker image and do not use host Python.
@@ -336,6 +337,8 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 - створює вибраний standard work type із Forge-формою Basic network request;
 - додає необов'язкові поля FireFlow Request ID, FireFlow Status і FireFlow Owner;
 - створює окремі work type, screen, field-configuration і workflow schemes;
+- дає вибрати `compact` (4 стани) або `full` (усі основні етапи FireFlow) і передає той самий
+  профіль у конфігурацію контейнера;
 - запитує Jira URL, email, API token, FireFlow URL, API account і режим TLS;
 - запускає connectivity doctor і лише після успішної перевірки активує контейнер.
 
@@ -346,17 +349,16 @@ owner-only файлах для пошуку Forge-застосунків і пі
 Поля FireFlow Request ID, Status і Owner залишаються видимими та необов'язковими. Окрема work
 type scheme містить лише вибраний інтеграційний тип і не змінює схеми інших Space. Автоматичне
 призначення схем виконується лише для порожнього Space; якщо в ньому вже є заявки і потрібна
-міграція, helper зупиняється. Для вибраного типу майстер створює компактний Jira workflow;
-повний Basic lifecycle залишається у FireFlow:
+міграція, helper зупиняється. Для вибраного типу майстер створює один із двох профілів:
 
 ```text
-To Do -> In Work -> Done
-                  -> Rejected / Cancelled
+Compact: To Do -> In Work -> Done | Rejected / Cancelled
+Full:    To Do -> Plan -> Approve -> Implement -> Validate -> Match -> Done
+                                                       \-> Rejected | Cancelled
 ```
 
-Усі проміжні етапи FireFlow відображаються в Jira як `In Work`; точний стан залишається у полі
-FireFlow Status і коментарях. Ручний перехід Jira у `Rejected / Cancelled` передає до FireFlow
-статус `cancelled`, якщо увімкнено зворотну синхронізацію статусів.
+У Compact усі проміжні етапи FireFlow відображаються як `In Work`; у Full вони показуються
+окремо. Точний стан завжди залишається у полі FireFlow Status і коментарях.
 
 ![Структурована Jira-форма з прикладами адрес із RFC 5737](docs/screenshots/23-structured-network-request.png)
 
@@ -427,9 +429,9 @@ sudo create-jira-space.sh --base-url https://TENANT.atlassian.net \
 
 sudo prepare-jira.sh --base-url https://TENANT.atlassian.net \
   --space-key ALGO --space-name "AlgoSec" \
-  --work-type-name "AlgoSec Network Access" --apply
+  --work-type-name "AlgoSec Network Access" --workflow-profile compact --apply
 
-sudo sh algosec-jira-bus-latest-docker-amd64.run
+sudo sh algosec-jira-bus-latest-docker-amd64.run --workflow-profile compact
 ```
 
 Ці `.sh`-команди використовують вбудований Docker-образ і не залежать від Python на host.

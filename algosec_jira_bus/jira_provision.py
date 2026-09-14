@@ -23,16 +23,42 @@ RESULT_FIELDS = ('FireFlow Request ID', 'FireFlow Status', 'FireFlow Owner')
 MARKER = 'Managed by jira-fireflow-bus prepare-jira.sh'
 SPACE_TEMPLATE = 'com.atlassian.jira-core-project-templates:jira-core-project-management'
 PAGE_SIZE = 100
-BASIC_WORKFLOW_STATUSES = (
-    ('To Do', 'TODO'),
-    ('In Work', 'IN_PROGRESS'),
-    ('Done', 'DONE'),
-    ('Rejected / Cancelled', 'DONE'),
-)
-BASIC_WORKFLOW_TRANSITION_IDS = {
-    'To Do': '11', 'In Work': '21', 'Done': '31',
-    'Rejected / Cancelled': '41',
+WORKFLOW_PROFILES = {
+    'full': {
+        'statuses': (
+            ('To Do', 'TODO'), ('Plan', 'IN_PROGRESS'),
+            ('Approve', 'IN_PROGRESS'), ('Implement', 'IN_PROGRESS'),
+            ('Validate', 'IN_PROGRESS'), ('Match', 'IN_PROGRESS'),
+            ('Done', 'DONE'), ('Rejected', 'DONE'), ('Cancelled', 'DONE'),
+        ),
+        'transition_ids': {
+            'To Do': '11', 'Plan': '21', 'Approve': '31', 'Implement': '41',
+            'Validate': '51', 'Match': '61', 'Done': '71', 'Rejected': '81',
+            'Cancelled': '91',
+        },
+        'workflow_suffix': 'Jira-FireFlow Basic Workflow',
+        'scheme_suffix': 'Jira-FireFlow Workflow Scheme',
+    },
+    'compact': {
+        'statuses': (
+            ('To Do', 'TODO'), ('In Work', 'IN_PROGRESS'),
+            ('Done', 'DONE'), ('Rejected / Cancelled', 'DONE'),
+        ),
+        'transition_ids': {
+            'To Do': '11', 'In Work': '21', 'Done': '31',
+            'Rejected / Cancelled': '41',
+        },
+        'workflow_suffix': 'Jira-FireFlow Compact Workflow',
+        'scheme_suffix': 'Jira-FireFlow Compact Workflow Scheme',
+    },
 }
+
+
+def workflow_profile(name):
+    """Return one supported workflow shape or reject an unsafe selector."""
+    if name not in WORKFLOW_PROFILES:
+        raise JiraProvisionError('Unknown Jira workflow profile')
+    return WORKFLOW_PROFILES[name]
 
 
 def _identifier(value, label):
@@ -457,7 +483,8 @@ def _workflow_id(value):
     return value
 
 
-def _verify_basic_workflow(document, workflow_name):
+def _verify_basic_workflow(document, workflow_name, profile='full'):
+    specification = workflow_profile(profile)
     if not isinstance(document, dict):
         raise JiraProvisionError('Jira returned an invalid workflow response')
     workflows = document.get('workflows')
@@ -498,7 +525,7 @@ def _verify_basic_workflow(document, workflow_name):
         if status.get('scope', {}).get('type') != 'GLOBAL':
             raise JiraProvisionError('Managed Jira workflow uses a non-global status')
         used_names.add(status.get('name'))
-    expected_categories = dict(BASIC_WORKFLOW_STATUSES)
+    expected_categories = dict(specification['statuses'])
     if len(used) != len(expected_categories) or used_names != set(expected_categories):
         raise JiraProvisionError('Managed Jira workflow has unexpected statuses')
     for status in by_reference.values():
@@ -527,20 +554,22 @@ def _verify_basic_workflow(document, workflow_name):
                 'Managed Jira workflow has unexpected transition rules')
     expected_transitions = {('Create', 'INITIAL', 'To Do')}
     expected_transitions.update((name, 'GLOBAL', name)
-                                for name, _category in BASIC_WORKFLOW_STATUSES)
+                                for name, _category in specification['statuses'])
     if (len(transitions) != len(expected_transitions)
             or actual_transitions != expected_transitions):
         raise JiraProvisionError('Managed Jira workflow has unexpected transitions')
     return _workflow_id(workflow.get('id'))
 
 
-def _basic_workflow_payload(call, project_key, workflow_name):
-    names = [name for name, _category in BASIC_WORKFLOW_STATUSES]
+def _basic_workflow_payload(call, project_key, workflow_name, profile='full'):
+    specification = workflow_profile(profile)
+    statuses_spec = specification['statuses']
+    names = [name for name, _category in statuses_spec]
     existing = call('/rest/api/3/statuses/byNames', query={'name': names})
     if not isinstance(existing, list):
         raise JiraProvisionError('Jira returned an invalid status-name response')
     global_statuses = {}
-    for name, category in BASIC_WORKFLOW_STATUSES:
+    for name, category in statuses_spec:
         matches = [item for item in existing if isinstance(item, dict)
                    and item.get('name') == name
                    and item.get('scope', {}).get('type') == 'GLOBAL']
@@ -556,7 +585,7 @@ def _basic_workflow_payload(call, project_key, workflow_name):
         for name in names
     }
     statuses = []
-    for name, category in BASIC_WORKFLOW_STATUSES:
+    for name, category in statuses_spec:
         status = {
             'name': name, 'description': MARKER, 'statusCategory': category,
             'statusReference': references[name],
@@ -581,7 +610,7 @@ def _basic_workflow_payload(call, project_key, workflow_name):
     }]
     transitions.extend({
         'actions': [], 'description': '',
-        'id': BASIC_WORKFLOW_TRANSITION_IDS[name], 'links': [],
+        'id': specification['transition_ids'][name], 'links': [],
         'name': name, 'properties': {}, 'toStatusReference': references[name],
         'triggers': [], 'type': 'GLOBAL', 'validators': [],
     } for name in names)
@@ -618,10 +647,11 @@ def _project_is_empty(call, project_key):
 
 
 def _ensure_basic_workflow(call, *, apply, project_key, project_id,
-                           issue_type_id, created):
+                           issue_type_id, created, profile='full'):
     """Create and isolate the Basic Change Traffic Request mirror workflow."""
-    workflow_name = project_key + ' Jira-FireFlow Basic Workflow'
-    scheme_name = project_key + ' Jira-FireFlow Workflow Scheme'
+    specification = workflow_profile(profile)
+    workflow_name = project_key + ' ' + specification['workflow_suffix']
+    scheme_name = project_key + ' ' + specification['scheme_suffix']
     current_scheme = _project_workflow_scheme(call, project_id)
     current_scheme_id = (None if current_scheme.get('id') is None else
                          _identifier(current_scheme.get('id'), 'workflow scheme ID'))
@@ -645,11 +675,11 @@ def _ensure_basic_workflow(call, *, apply, project_key, project_id,
     if len(named) > 1:
         raise JiraProvisionError('Managed Jira workflow was not found uniquely')
     if named:
-        workflow_id = _verify_basic_workflow(read, workflow_name)
+        workflow_id = _verify_basic_workflow(read, workflow_name, profile)
     elif not apply:
         return {'ready': False, 'planned': ['workflow:' + workflow_name]}
     else:
-        payload = _basic_workflow_payload(call, project_key, workflow_name)
+        payload = _basic_workflow_payload(call, project_key, workflow_name, profile)
         validation = call('/rest/api/3/workflows/create/validation', method='POST', body={
             'payload': payload, 'validationOptions': {'levels': ['ERROR', 'WARNING']},
         })
@@ -662,7 +692,7 @@ def _ensure_basic_workflow(call, *, apply, project_key, project_id,
         if any(item.get('level') == 'ERROR' for item in errors):
             raise JiraProvisionError('Jira rejected the Basic workflow definition')
         created_workflow = call('/rest/api/3/workflows/create', method='POST', body=payload)
-        workflow_id = _verify_basic_workflow(created_workflow, workflow_name)
+        workflow_id = _verify_basic_workflow(created_workflow, workflow_name, profile)
         created.append('workflow:' + workflow_name)
 
     schemes = _page_values(call, '/rest/api/3/workflowscheme')
@@ -775,7 +805,8 @@ def ensure_space(call, *, apply, project_key='ALGO', project_name='AlgoSec',
 
 
 def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
-                 issue_type_name='Network Access', forge_app_id=None):
+                 issue_type_name='Network Access', forge_app_id=None,
+                 workflow_profile_name='full'):
     """Prepare project, work type, fields and project screen using an admin caller."""
     if (type(apply) is not bool
             or not re.fullmatch(r'[A-Z][A-Z0-9_]{1,9}', project_key)
@@ -786,6 +817,7 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
                    for char in issue_type_name)):
         raise JiraProvisionError('Invalid Jira preparation options')
     _forge_app_uuid(forge_app_id)
+    workflow_profile(workflow_profile_name)
     account_id = _administrator(call)
 
     created = []
@@ -840,7 +872,8 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
 
     workflow = _ensure_basic_workflow(
         call, apply=apply, project_key=project_key, project_id=project_id,
-        issue_type_id=issue_type_id, created=created)
+        issue_type_id=issue_type_id, created=created,
+        profile=workflow_profile_name)
     if not workflow['ready']:
         return {'ready': False, 'planned': created + workflow['planned'], 'manual': []}
 
@@ -971,7 +1004,8 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
         'projectAndIssueTypes': [], 'workflowIds': [workflow['workflow_id']],
         'workflowNames': [],
     })
-    _verify_basic_workflow(verified_workflow, workflow['workflow_name'])
+    _verify_basic_workflow(verified_workflow, workflow['workflow_name'],
+                           workflow_profile_name)
 
     return {
         'ready': bool(apply), 'project_key': project_key, 'project_id': project_id,
@@ -988,6 +1022,7 @@ def prepare_jira(call, *, apply, project_key='ALGO', project_name='AlgoSec',
             field_configuration['field_configuration_scheme_id'],
         'workflow_id': workflow['workflow_id'],
         'workflow_name': workflow['workflow_name'],
+        'workflow_profile': workflow_profile_name,
         'workflow_scheme_id': workflow['workflow_scheme_id'],
         'issue_layout': {
             'path': ('/plugins/servlet/project-config/' + project_key
@@ -1011,6 +1046,8 @@ def main(argv=None):
     parser.add_argument('--project-key', '--space-key', dest='project_key')
     parser.add_argument('--project-name', '--space-name', dest='project_name')
     parser.add_argument('--work-type-name')
+    parser.add_argument('--workflow-profile', choices=('full', 'compact'),
+                        default='full')
     parser.add_argument('--forge-app-id',
                         help='select the installed Forge app ARI when more than one exists')
     parser.add_argument('--credentials-dir',
@@ -1060,7 +1097,8 @@ def main(argv=None):
         result = prepare_jira(call, apply=args.apply,
                               project_key=project_key, project_name=project_name,
                               issue_type_name=issue_type_name,
-                              forge_app_id=args.forge_app_id)
+                              forge_app_id=args.forge_app_id,
+                              workflow_profile_name=args.workflow_profile)
         layout = result.get('issue_layout')
         if isinstance(layout, dict) and isinstance(layout.get('path'), str):
             layout['url'] = base_url + layout['path']

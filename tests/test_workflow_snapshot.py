@@ -5,9 +5,9 @@ from pathlib import Path
 from algosec_jira_bus.sync import State, mirror
 
 class WorkflowSnapshot(unittest.TestCase):
-    def test_basic_example_collapses_every_active_fireflow_stage_into_in_work(self):
+    def test_compact_example_collapses_every_active_fireflow_stage_into_in_work(self):
         config = json.loads((Path(__file__).resolve().parents[1] /
-                             'examples/jira-sync-basic-structured.json').read_text())
+                             'examples/jira-sync-basic-structured-compact.json').read_text())
         transitions = config['mirror']['transitions']
         for status in ('open', 'plan', 'approve', 'approved', 'check',
                        'implementation plan', 'create work order', 'implement',
@@ -15,6 +15,18 @@ class WorkflowSnapshot(unittest.TestCase):
             self.assertEqual(transitions[status], 'In Work')
         self.assertEqual(transitions['rejected'], 'Rejected / Cancelled')
         self.assertEqual(transitions['cancelled'], 'Rejected / Cancelled')
+
+    def test_full_example_preserves_fireflow_process_stages(self):
+        config = json.loads((Path(__file__).resolve().parents[1] /
+                             'examples/jira-sync-basic-structured.json').read_text())
+        transitions = config['mirror']['transitions']
+        self.assertEqual(transitions['plan'], 'Plan')
+        self.assertEqual(transitions['approve'], 'Approve')
+        self.assertEqual(transitions['implement'], 'Implement')
+        self.assertEqual(transitions['validate'], 'Validate')
+        self.assertEqual(transitions['match'], 'Match')
+        self.assertEqual(transitions['rejected'], 'Rejected')
+        self.assertEqual(transitions['cancelled'], 'Cancelled')
 
     def test_owner_change_is_delivered_without_repeating_transition(self):
         with tempfile.TemporaryDirectory() as d:

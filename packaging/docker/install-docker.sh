@@ -11,6 +11,7 @@ CONFIG_FILE=""
 SECRETS_FILE=""
 CA_FILE=""
 FORGE_APP_ID=""
+WORKFLOW_PROFILE=full
 PREPARE_ONLY=0
 UPGRADE_ONLY=0
 BUS_CONF_SOURCE="$HERE/bus_conf"
@@ -34,12 +35,14 @@ while [ "$#" -gt 0 ]; do
         --secrets-file) [ "$#" -ge 2 ] || exit 2; SECRETS_FILE=$2; shift 2;;
         --ca-file) [ "$#" -ge 2 ] || exit 2; CA_FILE=$2; shift 2;;
         --forge-app-id) [ "$#" -ge 2 ] || exit 2; FORGE_APP_ID=$2; shift 2;;
+        --workflow-profile) [ "$#" -ge 2 ] || exit 2; WORKFLOW_PROFILE=$2; shift 2;;
         --prepare-only) PREPARE_ONLY=1; shift;;
         --upgrade) UPGRADE_ONLY=1; shift;;
-        --help) echo 'Usage: sh install-docker.sh --image-archive FILE --image-sha256 HEX [--upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]'; exit 0;;
+        --help) echo 'Usage: sh install-docker.sh --image-archive FILE --image-sha256 HEX [--workflow-profile full|compact] [--upgrade | --prepare-only] [--data-dir /absolute/path] [--config-file /root/bus.json --secrets-file /root/secrets.json [--ca-file /root/ca.pem]]'; exit 0;;
         *) echo "Unknown option: $1" >&2; exit 2;;
     esac
 done
+case "$WORKFLOW_PROFILE" in full|compact) ;; *) echo 'Invalid Jira workflow profile.' >&2; exit 2;; esac
 if [ -n "$FORGE_APP_ID" ]; then
     printf '%s\n' "$FORGE_APP_ID" | grep -Eq '^ari:cloud:ecosystem::app/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' \
         || { echo 'Invalid Forge App ID.' >&2; exit 2; }
@@ -575,6 +578,7 @@ else
     echo 'Enter Jira and ASMS settings in the wizard. Existing saved configuration is preserved.'
     set -- --source /opt/algosec-jira-bus/setup-source --container
     [ -z "$FORGE_APP_ID" ] || set -- "$@" --forge-app-id "$FORGE_APP_ID"
+    set -- "$@" --workflow-profile "$WORKFLOW_PROFILE"
     docker run --rm -it --user 10001:10001 --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
         --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
         --memory 512m --memory-swap 512m \
