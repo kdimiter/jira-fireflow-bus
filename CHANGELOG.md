@@ -7,6 +7,8 @@
   precise status through the result field and comments.
 - Keep the dedicated network-access work type as the Jira Space default on repeat preparation,
   preventing a drifted `Task` default from opening the Forge field on an incompatible form.
+- Send structured Jira hostname endpoints as FireFlow named traffic items, matching the
+  documented Source and Destination REST contract.
 
 ## 0.3.14
 
