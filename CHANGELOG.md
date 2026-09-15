@@ -6,6 +6,8 @@
   with timestamps, duration, result and run ID for every doctor, poll and reconciliation pass.
 - Install `bus_diag` for at-a-glance status, live read-only connectivity checks, timestamped
   container logs, persistent redacted events and an owner-only diagnostic report.
+- Add standalone English and Ukrainian operations runbooks for incident triage, post-upgrade
+  checks, log interpretation and safe recovery of parked work.
 - Keep compact Jira requests in `To Do` while FireFlow is `new`, `open`, or
   `plan`; move them to `In Work` only when FireFlow reaches `approve` or a
   later active stage. Docker upgrades migrate the previous compact mapping
