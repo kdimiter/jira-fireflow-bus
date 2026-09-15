@@ -300,6 +300,7 @@ def _verify_docker_installer(root, path, revision, image_digest):
     upgrader_name = 'upgrade-config.py'
     bus_conf_name = 'bus_conf'
     bus_update_name = 'bus_update'
+    bus_diag_name = 'bus_diag'
     guided_setup_name = 'guided-linux-setup.sh'
     forge_setup_name = 'setup-forge.sh'
     forge_archive_name = 'forge-app.tar.gz'
@@ -308,11 +309,11 @@ def _verify_docker_installer(root, path, revision, image_digest):
     files, captured = _self_extractor_files(
         path, DOCKER_INSTALLER_MARKER, 'build-docker-installer.py',
         {'MANIFEST.json', checksum_name, 'install-docker.sh', stager_name,
-         upgrader_name, bus_conf_name, bus_update_name, guided_setup_name,
+         upgrader_name, bus_conf_name, bus_update_name, bus_diag_name, guided_setup_name,
          forge_setup_name, forge_archive_name, *prepare_names})
     expected_names = {
         image_name, checksum_name, 'install-docker.sh', stager_name, upgrader_name,
-        bus_conf_name, bus_update_name, guided_setup_name, forge_setup_name,
+        bus_conf_name, bus_update_name, bus_diag_name, guided_setup_name, forge_setup_name,
         forge_archive_name,
         *prepare_names,
         'MANIFEST.json'}
@@ -353,6 +354,10 @@ def _verify_docker_installer(root, path, revision, image_digest):
         root, revision, 'packaging/docker/bus_update')
     if files[bus_update_name]['sha256'] != bus_update_digest:
         raise ValueError('Docker installer bus_update helper does not match release Git tree')
+    bus_diag_digest = _git_blob_digest(
+        root, revision, 'packaging/docker/bus_diag')
+    if files[bus_diag_name]['sha256'] != bus_diag_digest:
+        raise ValueError('Docker installer bus_diag helper does not match release Git tree')
     for name in prepare_names:
         digest = _git_blob_digest(root, revision, 'scripts/' + name)
         if files[name]['sha256'] != digest:

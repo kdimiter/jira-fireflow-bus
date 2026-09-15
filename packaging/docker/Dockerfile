@@ -35,5 +35,7 @@ RUN apk add --upgrade --no-cache 'libuuid=2.41.6-r1' \
  && chmod 0700 /var/lib/algosec-jira-bus \
  && chmod -R a+rX /opt/algosec-jira-bus/setup-source /usr/local/libexec/algosec-jira-bus-scheduler.py
 USER 10001:10001
+HEALTHCHECK --interval=60s --timeout=5s --start-period=330s --retries=3 \
+    CMD ["python", "/usr/local/libexec/algosec-jira-bus-scheduler.py", "healthcheck"]
 ENTRYPOINT ["python", "/usr/local/libexec/algosec-jira-bus-scheduler.py"]
 CMD ["serve"]

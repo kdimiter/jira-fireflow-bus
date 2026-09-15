@@ -48,6 +48,8 @@ class ReleaseMetadataTests(unittest.TestCase):
             (ROOT / 'packaging/docker/bus_conf').read_bytes())
         (self.root / 'packaging/docker/bus_update').write_bytes(
             (ROOT / 'packaging/docker/bus_update').read_bytes())
+        (self.root / 'packaging/docker/bus_diag').write_bytes(
+            (ROOT / 'packaging/docker/bus_diag').read_bytes())
         (self.root / 'scripts').mkdir()
         for name in ('prepare-fireflow.sh', 'prepare-jira.sh',
                      'create-jira-space.sh', 'guided-linux-setup.sh',

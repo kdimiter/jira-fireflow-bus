@@ -23,8 +23,19 @@ sudo sh algosec-jira-bus-latest-docker-amd64.run --guided
 sudo bus_conf
 sudo bus_conf --refresh-certificate
 sudo bus_conf --jira-sync
+sudo bus_diag status
+sudo bus_diag doctor
 sudo docker logs --tail 100 algosec-jira-bus
 ```
+
+Повний діагностичний звіт без паролів і токенів:
+
+```sh
+sudo bus_diag collect
+```
+
+Звіт містить технічні назви систем, Jira keys та FireFlow request IDs, тому перед передаванням
+за межі команди підтримки його потрібно переглянути.
 
 Оновлення зі збереженням чинних secrets, config і state:
 
