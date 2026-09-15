@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a persistent `health.json`, a local Docker health check and structured scheduler events
+  with timestamps, duration, result and run ID for every doctor, poll and reconciliation pass.
+- Install `bus_diag` for at-a-glance status, live read-only connectivity checks, timestamped
+  container logs, persistent redacted events and an owner-only diagnostic report.
 - Keep compact Jira requests in `To Do` while FireFlow is `new`, `open`, or
   `plan`; move them to `In Work` only when FireFlow reaches `approve` or a
   later active stage. Docker upgrades migrate the previous compact mapping

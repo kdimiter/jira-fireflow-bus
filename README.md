@@ -44,10 +44,41 @@ sudo bus_conf --refresh-certificate
 # Enable or change Jira -> FireFlow comments and status synchronization:
 sudo bus_conf --jira-sync
 
+# Show container health, the last successful pass and unfinished work:
+sudo bus_diag status
+
+# Run live read-only Jira, FireFlow and TLS checks:
+sudo bus_diag doctor
+
 # 3. Inspect the service:
 sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
 ```
+
+## Operations and diagnostics
+
+The container publishes a Docker health status backed by
+`/opt/algosec-jira-docker/state/health.json`. Every startup doctor, 30-second poll and daily
+reconciliation writes one structured start and finish event with a UTC timestamp, run ID,
+duration and exit code. A failed pass marks the container degraded; a later successful poll
+clears a poll failure, while a failed reconciliation remains visible until reconciliation
+succeeds.
+
+```sh
+sudo bus_diag status       # container, persistent health and unfinished queue
+sudo bus_diag doctor       # live, read-only dependency checks
+sudo bus_diag logs 200     # timestamped Docker output
+sudo bus_diag events 200   # persistent redacted business events
+sudo bus_diag report       # all checks in one terminal report
+sudo bus_diag collect      # owner-only report under /var/tmp
+```
+
+Docker output rotates at 10 MB with three files. The persistent `jira-bus.jsonl` event journal
+and `audit.jsonl` operation receipts each rotate at 8 MB with ten backups. They survive container
+replacement because the state directory is mounted separately. Logs and reports never include
+configured passwords or API tokens. A collected report can include Jira keys, field IDs,
+FireFlow request IDs, system names and other operational identifiers, so review it before
+sharing outside the support team.
 
 ![Ready Docker installer with stable latest-release links](docs/screenshots/21-docker-installer.png)
 

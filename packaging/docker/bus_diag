@@ -1,0 +1,121 @@
+#!/bin/sh
+# Read-only operational diagnostics for the installed Docker bus.
+set -u
+umask 077
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+unset PYTHONPATH PYTHONHOME DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
+
+CONTAINER=algosec-jira-bus
+PATH_FILE=/etc/algosec-jira-bus-docker.path
+
+usage() {
+    cat <<'EOF'
+Usage: sudo bus_diag [status|doctor|logs [LINES]|events [LINES]|report|collect [FILE]]
+  status   container, health heartbeat and unfinished queue (default)
+  doctor   live read-only Jira, FireFlow and TLS connectivity checks
+  logs     timestamped Docker output; default 100, maximum 5000 lines
+  events   persistent redacted bus events; default 100, maximum 5000 lines
+  report   status, doctor, events and logs in one support report
+  collect  write that report to an owner-only file under /var/tmp
+EOF
+}
+
+fail() { echo "$*" >&2; exit 1; }
+lines() {
+    case "$1" in ''|*[!0-9]*) fail 'LINES must be a whole number from 1 to 5000';; esac
+    [ "$1" -ge 1 ] && [ "$1" -le 5000 ] \
+        || fail 'LINES must be a whole number from 1 to 5000'
+    printf '%s' "$1"
+}
+require_install() {
+    [ "$(id -u)" -eq 0 ] || fail 'Run with sudo: sudo bus_diag'
+    command -v docker >/dev/null 2>&1 || fail 'Docker is not installed'
+    [ -f "$PATH_FILE" ] && [ ! -L "$PATH_FILE" ] \
+        && [ "$(stat -c '%u:%a' "$PATH_FILE")" = 0:600 ] \
+        || fail 'Installed data-path record is missing or unsafe'
+    DATA=$(cat "$PATH_FILE")
+    [ -d "$DATA" ] && [ ! -L "$DATA" ] && [ "$(stat -c '%u:%a' "$DATA")" = 0:700 ] \
+        || fail 'Installed data directory is missing or unsafe'
+    [ -d "$DATA/state" ] && [ ! -L "$DATA/state" ] \
+        && [ "$(stat -c '%u:%g:%a' "$DATA/state")" = 10001:10001:700 ] \
+        || fail 'Persistent state directory is missing or unsafe'
+    LABEL=$(docker inspect --format '{{index .Config.Labels "org.algosec.jira-bus.managed"}}' \
+        "$CONTAINER" 2>/dev/null) || fail 'The algosec-jira-bus container does not exist'
+    [ "$LABEL" = helper ] || fail 'Container is not managed by this installer'
+}
+heading() { printf '\n=== %s ===\n' "$1"; }
+status() {
+    result=0
+    container_state=$(docker inspect --format '{{.State.Status}}' "$CONTAINER")
+    container_health=$(docker inspect --format \
+        '{{if .State.Health}}{{.State.Health.Status}}{{else}}unavailable{{end}}' "$CONTAINER")
+    heading 'Container'
+    docker inspect --format \
+        'name={{.Name}} image={{.Config.Image}} state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}unavailable{{end}} restarts={{.RestartCount}} started={{.State.StartedAt}}' \
+        "$CONTAINER"
+    [ "$container_state" = running ] && [ "$container_health" = healthy ] || result=1
+    heading 'Persistent health'
+    if ! docker exec "$CONTAINER" cat /var/lib/algosec-jira-bus/health.json; then
+        echo 'health.json is unavailable (the image may predate operational diagnostics)'
+        result=1
+    fi
+    heading 'Unfinished queue'
+    docker exec "$CONTAINER" python /usr/local/libexec/algosec-jira-bus-scheduler.py queue \
+        || result=1
+    return "$result"
+}
+doctor() {
+    docker exec "$CONTAINER" python /usr/local/libexec/algosec-jira-bus-scheduler.py doctor
+}
+logs() {
+    docker logs --timestamps --tail "$(lines "${1:-100}")" "$CONTAINER" 2>&1
+}
+events() {
+    count=$(lines "${1:-100}")
+    file=$DATA/state/jira-bus.jsonl
+    [ -f "$file" ] && [ ! -L "$file" ] && [ "$(stat -c '%h' "$file")" = 1 ] \
+        || fail 'Persistent event journal is unavailable'
+    tail -n "$count" "$file"
+}
+report() {
+    result=0
+    status || result=1
+    heading 'Connectivity doctor'
+    doctor || result=1
+    heading 'Recent persistent events'
+    events 200 || result=1
+    heading 'Recent timestamped container logs'
+    logs 200 || result=1
+    return "$result"
+}
+
+require_install
+command=${1:-status}
+case "$command" in
+    status) [ "$#" -eq 0 ] || shift; [ "$#" -eq 0 ] || { usage >&2; exit 2; }; status;;
+    doctor) shift; [ "$#" -eq 0 ] || { usage >&2; exit 2; }; doctor;;
+    logs) shift; [ "$#" -le 1 ] || { usage >&2; exit 2; }; logs "${1:-100}";;
+    events) shift; [ "$#" -le 1 ] || { usage >&2; exit 2; }; events "${1:-100}";;
+    report) shift; [ "$#" -eq 0 ] || { usage >&2; exit 2; }; report;;
+    collect)
+        shift
+        [ "$#" -le 1 ] || { usage >&2; exit 2; }
+        output=${1:-/var/tmp/algosec-jira-bus-diagnostics-$(date -u +%Y%m%dT%H%M%SZ).txt}
+        case "$output" in /*) ;; *) fail 'Diagnostic report path must be absolute';; esac
+        # Open once with noclobber so a root invocation cannot overwrite a path
+        # that appeared after the existence check (including a symlink).
+        set -C
+        exec 3>"$output" || fail 'Diagnostic report already exists or cannot be created safely'
+        set +C
+        result=0
+        report >&3 2>&1 || result=1
+        exec 3>&-
+        chmod 0600 "$output"
+        echo "Diagnostic report saved: $output"
+        echo 'It contains system and request identifiers, but no configured passwords or tokens.'
+        exit "$result"
+        ;;
+    --help|-h|help) usage;;
+    *) usage >&2; exit 2;;
+esac

@@ -18,6 +18,7 @@ STAGER_NAME = 'stage-config.py'
 UPGRADER_NAME = 'upgrade-config.py'
 BUS_CONF_NAME = 'bus_conf'
 BUS_UPDATE_NAME = 'bus_update'
+BUS_DIAG_NAME = 'bus_diag'
 PREPARE_NAMES = ('prepare-fireflow.sh', 'prepare-jira.sh', 'create-jira-space.sh')
 GUIDED_SETUP_NAME = 'guided-linux-setup.sh'
 FORGE_SETUP_NAME = 'setup-forge.sh'
@@ -184,6 +185,7 @@ def build(image: Path, helper: Path, output: Path, revision=None):
         UPGRADER_NAME: (ROOT / 'packaging/docker' / UPGRADER_NAME).read_bytes(),
         BUS_CONF_NAME: (ROOT / 'packaging/docker' / BUS_CONF_NAME).read_bytes(),
         BUS_UPDATE_NAME: (ROOT / 'packaging/docker' / BUS_UPDATE_NAME).read_bytes(),
+        BUS_DIAG_NAME: (ROOT / 'packaging/docker' / BUS_DIAG_NAME).read_bytes(),
         GUIDED_SETUP_NAME: (ROOT / 'scripts' / GUIDED_SETUP_NAME).read_bytes(),
         FORGE_SETUP_NAME: (ROOT / 'scripts' / FORGE_SETUP_NAME).read_bytes(),
         FORGE_ARCHIVE_NAME: _forge_archive(),

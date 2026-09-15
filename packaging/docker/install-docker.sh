@@ -16,6 +16,7 @@ PREPARE_ONLY=0
 UPGRADE_ONLY=0
 BUS_CONF_SOURCE="$HERE/bus_conf"
 BUS_UPDATE_SOURCE="$HERE/bus_update"
+BUS_DIAG_SOURCE="$HERE/bus_diag"
 CONFIG_UPGRADER="$HERE/upgrade-config.py"
 FIREFLOW_PREPARE_SOURCE="$HERE/prepare-fireflow.sh"
 JIRA_PREPARE_SOURCE="$HERE/prepare-jira.sh"
@@ -54,7 +55,7 @@ case "$DATA" in *:*|*,*) echo 'Data directory cannot contain colon or comma.' >&
 [ -f "$ARCHIVE" ] || { echo "Image archive missing: $ARCHIVE" >&2; exit 1; }
 [ -f "$BUS_CONF_SOURCE" ] && [ ! -L "$BUS_CONF_SOURCE" ] \
     || { echo 'Verified bus_conf helper is missing.' >&2; exit 1; }
-for HELPER in "$BUS_UPDATE_SOURCE" "$CONFIG_UPGRADER"; do
+for HELPER in "$BUS_UPDATE_SOURCE" "$BUS_DIAG_SOURCE" "$CONFIG_UPGRADER"; do
     [ -f "$HELPER" ] && [ ! -L "$HELPER" ] \
         || { echo "Verified upgrade helper is missing: $HELPER" >&2; exit 1; }
 done
@@ -195,12 +196,13 @@ print(canonical)
 PY
 }
 install_helpers() {
-    python3 - "$BUS_CONF_SOURCE" "$BUS_UPDATE_SOURCE" "$FIREFLOW_PREPARE_SOURCE" \
-        "$JIRA_PREPARE_SOURCE" "$JIRA_SPACE_SOURCE" "$DATA" <<'PY'
+    python3 - "$BUS_CONF_SOURCE" "$BUS_UPDATE_SOURCE" "$BUS_DIAG_SOURCE" \
+        "$FIREFLOW_PREPARE_SOURCE" "$JIRA_PREPARE_SOURCE" "$JIRA_SPACE_SOURCE" \
+        "$DATA" <<'PY'
 import os, pathlib, stat, sys, tempfile
 
-sources = list(map(pathlib.Path, sys.argv[1:6]))
-data = pathlib.Path(sys.argv[6])
+sources = list(map(pathlib.Path, sys.argv[1:7]))
+data = pathlib.Path(sys.argv[7])
 
 def atomic_write(destination, payload, mode):
     destination = pathlib.Path(destination)
@@ -227,6 +229,7 @@ def atomic_write(destination, payload, mode):
 
 for source, destination in zip(
         sources, ('/usr/local/sbin/bus_conf', '/usr/local/sbin/bus_update',
+                  '/usr/local/sbin/bus_diag',
                   '/usr/local/sbin/prepare-fireflow.sh',
                   '/usr/local/sbin/prepare-jira.sh',
                   '/usr/local/sbin/create-jira-space.sh')):

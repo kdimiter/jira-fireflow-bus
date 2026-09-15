@@ -493,7 +493,7 @@ sudo docker exec algosec-jira-bus \
 Вимкнути напрямок можна тією самою командою. Секрети, основна конфігурація, зв'язки заявок і
 state при цьому зберігаються.
 
-### 2.6. Автоматичне встановлення без майстра
+### 2.7. Автоматичне встановлення без майстра
 
 На production-сервері ChatGPT, агент і MCP не потрібні. Підготуйте `bus.json` з
 `env:JIRA_API_TOKEN` та `env:ASMS_API_PASSWORD`, а також приватний `secrets.json`, який містить
@@ -533,6 +533,35 @@ CA. Варіант із `--ca-file` зберігає повну перевірк
 sudo docker ps --filter name=algosec-jira-bus
 sudo docker logs --tail 100 algosec-jira-bus
 ```
+
+### 2.8. Діагностика та журнали
+
+Після встановлення доступна одна команда для експлуатації:
+
+```sh
+sudo bus_diag status       # стан контейнера, heartbeat і незавершена черга
+sudo bus_diag doctor       # актуальна read-only перевірка Jira, FireFlow і TLS
+sudo bus_diag logs 200     # Docker logs із часовими мітками
+sudo bus_diag events 200   # постійний журнал подій із прихованими чутливими полями
+sudo bus_diag report       # повний звіт у terminal
+sudo bus_diag collect      # записати звіт 0600 у /var/tmp
+```
+
+Контейнер оновлює `/opt/algosec-jira-docker/state/health.json` після startup doctor, кожного
+30-секундного poll і щоденного reconcile. У файлі є UTC-час, тип перевірки, унікальний run ID,
+тривалість, exit code, останній успіх, остання помилка та кількість помилок підряд. Docker
+позначає контейнер `unhealthy`, якщо остання перевірка завершилася помилкою або heartbeat не
+оновлювався понад 15 хвилин. Health check локальний і сам не створює додаткових API-запитів.
+
+Docker stdout має ротацію 10 МБ × 3 файли. У persistent state зберігаються `jira-bus.jsonl`
+з результатами проходів і заявок та `audit.jsonl` з operation receipts. Кожен із цих журналів
+обмежений 8 МБ і десятьма резервними файлами. Вони не видаляються під час штатного оновлення
+контейнера. Поля з назвами password, token, secret, authorization, cookie, session та email
+редагуються до запису.
+
+`bus_diag collect` не додає конфігураційні паролі або API tokens, але звіт містить Jira keys,
+FireFlow request IDs, назви систем, полів і пристроїв. Перегляньте його перед передаванням за
+межі команди підтримки.
 
 Секрети зберігаються на host у
 `/opt/algosec-jira-docker/config/secrets.json` (`0600`, UID/GID `10001`). Config монтується

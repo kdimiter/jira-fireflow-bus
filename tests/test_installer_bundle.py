@@ -302,6 +302,7 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
             'upgrade-config.py',
             'bus_conf',
             'bus_update',
+            'bus_diag',
             'prepare-fireflow.sh',
             'prepare-jira.sh',
             'create-jira-space.sh',
@@ -313,6 +314,8 @@ class SelfContainedDockerInstallerTests(unittest.TestCase):
                          (ROOT / 'packaging/docker/bus_conf').read_bytes())
         self.assertEqual((target / 'bus_update').read_bytes(),
                          (ROOT / 'packaging/docker/bus_update').read_bytes())
+        self.assertEqual((target / 'bus_diag').read_bytes(),
+                         (ROOT / 'packaging/docker/bus_diag').read_bytes())
         self.assertEqual((target / 'guided-linux-setup.sh').read_bytes(),
                          (ROOT / 'scripts/guided-linux-setup.sh').read_bytes())
         with tarfile.open(target / 'forge-app.tar.gz', 'r:gz') as archive:
