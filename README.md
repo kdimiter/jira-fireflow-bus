@@ -73,6 +73,9 @@ sudo bus_diag report       # all checks in one terminal report
 sudo bus_diag collect      # owner-only report under /var/tmp
 ```
 
+Use the standalone [operations and troubleshooting runbook](docs/DIAGNOSTICS.md) for incident
+triage, log interpretation, post-upgrade validation, parked work and safe support collection.
+
 Docker output rotates at 10 MB with three files. The persistent `jira-bus.jsonl` event journal
 and `audit.jsonl` operation receipts each rotate at 8 MB with ten backups. They survive container
 replacement because the state directory is mounted separately. Logs and reports never include

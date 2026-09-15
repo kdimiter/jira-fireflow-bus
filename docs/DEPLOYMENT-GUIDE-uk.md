@@ -547,6 +547,10 @@ sudo bus_diag report       # повний звіт у terminal
 sudo bus_diag collect      # записати звіт 0600 у /var/tmp
 ```
 
+Повний порядок пошуку несправності, розшифрування лічильників, перевірка після оновлення
+Jira/FireFlow та безпечна робота з parked-операціями наведені в
+[окремому посібнику з діагностики](DIAGNOSTICS-uk.md).
+
 Контейнер оновлює `/opt/algosec-jira-docker/state/health.json` після startup doctor, кожного
 30-секундного poll і щоденного reconcile. У файлі є UTC-час, тип перевірки, унікальний run ID,
 тривалість, exit code, останній успіх, остання помилка та кількість помилок підряд. Docker

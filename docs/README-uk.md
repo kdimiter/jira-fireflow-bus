@@ -34,6 +34,9 @@ sudo docker logs --tail 100 algosec-jira-bus
 sudo bus_diag collect
 ```
 
+Покрокова діагностика, розшифрування журналів і дії після оновлення систем описані в
+[окремому runbook](DIAGNOSTICS-uk.md).
+
 Звіт містить технічні назви систем, Jira keys та FireFlow request IDs, тому перед передаванням
 за межі команди підтримки його потрібно переглянути.
 
